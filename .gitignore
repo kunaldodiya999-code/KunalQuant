@@ -1,0 +1,5 @@
+.env
+fyers_access_token.txt
+__pycache__/
+*.pyc
+.venv/

@@ -1,0 +1,83 @@
+{
+  "d": {
+    "NSE:NIFTY26SEPFUT": {
+      "totalbuyqty": 108420,
+      "totalsellqty": 184210,
+      "ask": [
+        {
+          "price": 23380,
+          "volume": 1495,
+          "ord": 5
+        },
+        {
+          "price": 23380.3,
+          "volume": 65,
+          "ord": 1
+        },
+        {
+          "price": 23380.5,
+          "volume": 65,
+          "ord": 1
+        },
+        {
+          "price": 23380.7,
+          "volume": 325,
+          "ord": 1
+        },
+        {
+          "price": 23381.2,
+          "volume": 130,
+          "ord": 1
+        }
+      ],
+      "bids": [
+        {
+          "price": 23374,
+          "volume": 195,
+          "ord": 3
+        },
+        {
+          "price": 23372.2,
+          "volume": 130,
+          "ord": 2
+        },
+        {
+          "price": 23372,
+          "volume": 325,
+          "ord": 4
+        },
+        {
+          "price": 23371.1,
+          "volume": 585,
+          "ord": 2
+        },
+        {
+          "price": 23371,
+          "volume": 195,
+          "ord": 3
+        }
+      ],
+      "o": 23379,
+      "h": 23420,
+      "l": 23312.6,
+      "c": 23333.4,
+      "chp": 0.2,
+      "tick_Size": 0.1,
+      "ch": 46.6,
+      "ltq": 65,
+      "ltt": 1789726199,
+      "ltp": 23380,
+      "v": 1508520,
+      "atp": 23367.69,
+      "lower_ckt": 21040.7,
+      "upper_ckt": 25716.3,
+      "expiry": "1790676600",
+      "oi": 17446715,
+      "oiflag": true,
+      "pdoi": 17667000,
+      "oipercent": -1.25
+    }
+  },
+  "message": "Success",
+  "s": "ok"
+}

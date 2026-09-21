@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+from instruments.contract_specs import (
+    ContractSpecRegistry,
+)
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +76,10 @@ class GEXEngine:
         self.database_path.parent.mkdir(
             parents=True,
             exist_ok=True
+        )
+
+        self.contract_specs = (
+            ContractSpecRegistry()
         )
 
     def _connect(self) -> sqlite3.Connection:
@@ -446,8 +453,16 @@ class GEXEngine:
                 row["gamma"]
             )
 
-            lot_size = int(
-                row["lot_size"] or 0
+            lot_size = (
+                int(row["lot_size"])
+                if row["lot_size"] is not None
+                else (
+                    self.contract_specs.get_lot_size(
+                        underlying=self.UNDERLYING,
+                        expiry_date=expiry_date,
+                    )
+                    or 0
+                )
             )
 
             open_interest = oi_map.get(

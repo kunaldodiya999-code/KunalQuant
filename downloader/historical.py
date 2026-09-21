@@ -278,7 +278,7 @@ class HistoricalDownloader:
           AND resolution = ?
           AND range_from = ?
           AND range_to = ?
-          AND status = 'COMPLETED'
+          AND status IN ('COMPLETED', 'EMPTY')
 
         ORDER BY id DESC
 
@@ -378,25 +378,22 @@ class HistoricalDownloader:
 
             connection.commit()
 
-    def _mark_completed(
+    def _mark_empty(
         self,
         job_id: int,
-        received_candles: int,
-        inserted_candles: int,
-        duplicate_candles: int,
     ) -> None:
 
         sql = """
         UPDATE download_jobs
 
         SET
-            status = 'COMPLETED',
+            status = 'EMPTY',
 
-            received_candles = ?,
+            received_candles = 0,
 
-            inserted_candles = ?,
+            inserted_candles = 0,
 
-            duplicate_candles = ?,
+            duplicate_candles = 0,
 
             completed_at = CURRENT_TIMESTAMP
 
@@ -407,12 +404,7 @@ class HistoricalDownloader:
 
             connection.execute(
                 sql,
-                (
-                    received_candles,
-                    inserted_candles,
-                    duplicate_candles,
-                    job_id,
-                )
+                (job_id,)
             )
 
             connection.commit()
@@ -878,6 +870,27 @@ class HistoricalDownloader:
 
         if existing_job is not None:
 
+            existing_status = str(
+                existing_job["status"]
+            )
+
+            if existing_status == "EMPTY":
+
+                print(
+                    f"\nSKIP empty chunk:"
+                    f" {range_from} -> {range_to}"
+                )
+
+                return {
+                    "status": "EMPTY",
+                    "symbol": symbol,
+                    "range_from": range_from,
+                    "range_to": range_to,
+                    "received": 0,
+                    "inserted": 0,
+                    "duplicates": 0,
+                }
+
             print(
                 f"\nSKIP completed chunk:"
                 f" {range_from} -> {range_to}"
@@ -907,7 +920,7 @@ class HistoricalDownloader:
                     or 0
                 ),
             }
-
+        
         job_id = self._create_job(
             symbol=symbol,
             instrument_id=instrument_id,
@@ -1031,6 +1044,36 @@ class HistoricalDownloader:
             )
         )
 
+        if not normalized:
+
+            self._mark_empty(
+                job_id
+            )
+
+            print(
+                "  Received candles : 0"
+            )
+
+            print(
+                "  Status            : EMPTY"
+            )
+
+            print(
+                f"  Raw response     : {raw_path}"
+            )
+
+            return {
+                "status": "EMPTY",
+                "symbol": symbol,
+                "range_from": range_from,
+                "range_to": range_to,
+                "received": 0,
+                "inserted": 0,
+                "duplicates": 0,
+                "raw_path": str(
+                    raw_path
+                ),
+            }
         inserted, duplicates = (
             self._store_candles(
                 instrument_id=instrument_id,
@@ -1157,6 +1200,13 @@ class HistoricalDownloader:
                 if result.get(
                     "status"
                 ) == "FAILED"
+            ),
+            "empty": sum(
+                1
+                for result in results
+                if result.get(
+                    "status"
+                ) == "EMPTY"
             ),
         }
 

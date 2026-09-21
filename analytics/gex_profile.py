@@ -159,8 +159,43 @@ class GEXProfileEngine:
             for row in rows
         ]
 
+        # -----------------------------------------------------
+        # ATM / SPOT-CENTERED INFORMATION
+        # -----------------------------------------------------
+
+        if profile:
+            spot_price = float(
+                profile[0]["spot_price"]
+            )
+
+            atm_row = min(
+                profile,
+                key=lambda row: abs(
+                    float(row["strike"])
+                    - spot_price
+                ),
+            )
+
+            atm_strike = float(
+                atm_row["strike"]
+            )
+
+            atm_distance = (
+                spot_price
+                - atm_strike
+            )
+
+        else:
+            spot_price = None
+            atm_strike = None
+            atm_distance = None
+
         positive = sorted(
-            profile,
+            [
+                row
+                for row in profile
+                if float(row["net_gex"]) > 0
+            ],
             key=lambda row: float(
                 row["net_gex"]
             ),
@@ -168,7 +203,11 @@ class GEXProfileEngine:
         )
 
         negative = sorted(
-            profile,
+            [
+                row
+                for row in profile
+                if float(row["net_gex"]) < 0
+            ],
             key=lambda row: float(
                 row["net_gex"]
             ),
@@ -178,6 +217,9 @@ class GEXProfileEngine:
             "expiry_date": expiry_date,
             "timestamp": latest_timestamp,
             "strike_count": len(profile),
+            "spot_price": spot_price,
+            "atm_strike": atm_strike,
+            "atm_distance_points": atm_distance,
             "profile": profile,
             "top_positive_net_gex": [
                 {
@@ -377,6 +419,15 @@ class GEXProfileEngine:
             "gex_convention": self.GEX_CONVENTION,
             "calculation_version": (
                 self.CALCULATION_VERSION
+            ),
+            "spot_price": profile.get(
+                "spot_price"
+            ),
+            "atm_strike": profile.get(
+                "atm_strike"
+            ),
+            "atm_distance_points": profile.get(
+                "atm_distance_points"
             ),
             "summary": summary,
             "profile": profile["profile"],

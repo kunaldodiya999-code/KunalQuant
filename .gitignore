@@ -1,5 +1,23 @@
-.env
-fyers_access_token.txt
+# Python
+.venv/
 __pycache__/
 *.pyc
-.venv/
+*.pyo
+
+# Secrets
+.env
+fyers_access_token.txt
+
+# Local data
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Generated test outputs
+fyers*.json
+fyers_nifty_expired_expiry_dates.txt
+*_test.txt

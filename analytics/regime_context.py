@@ -2176,6 +2176,628 @@ class MarketRegimeContext:
         }
 
     # =========================================================
+    # OPTIONS INTELLIGENCE AGGREGATION
+    # =========================================================
+
+    @staticmethod
+    def _build_options_intelligence(
+        expiry_date: str,
+        timestamp: int,
+        spot: float | None,
+        futures: dict,
+        india_vix: dict,
+        call_oi: int | None,
+        put_oi: int | None,
+        pcr_oi: float | None,
+        option_chain_quality: dict,
+        iv_surface: dict,
+        gex: dict,
+        gex_evolution: dict,
+        gex_quality: dict,
+        synchronized: bool,
+    ) -> dict:
+        """
+        Consolidate existing option analytics into one
+        quality-aware read-only object.
+
+        This layer does not create a trading signal,
+        ranking, score, or recommendation.
+        """
+
+        component_states = {
+            "option_chain": (
+                option_chain_quality.get(
+                    "status",
+                    "UNAVAILABLE",
+                )
+            ),
+
+            "atm": (
+                "USABLE"
+                if option_chain_quality.get(
+                    "atm_usable",
+                    False,
+                )
+                else "NOT_USABLE"
+            ),
+
+            "pcr": (
+                "USABLE"
+                if option_chain_quality.get(
+                    "pcr_oi_usable",
+                    False,
+                )
+                else "NOT_USABLE"
+            ),
+
+            "iv_surface": (
+                "USABLE"
+                if iv_surface.get(
+                    "usable",
+                    False,
+                )
+                else iv_surface.get(
+                    "status",
+                    "UNAVAILABLE",
+                )
+            ),
+
+            "gex": (
+                "AVAILABLE"
+                if gex.get(
+                    "available",
+                    False,
+                )
+                else "UNAVAILABLE"
+            ),
+
+            "gex_full_chain": (
+                "USABLE"
+                if gex_quality.get(
+                    "full_chain_usable",
+                    False,
+                )
+                else "NOT_USABLE"
+            ),
+
+            "gex_atm_window": (
+                "USABLE"
+                if gex_quality.get(
+                    "atm_window_usable",
+                    False,
+                )
+                else "NOT_USABLE"
+            ),
+
+            "gex_evolution": (
+                "AVAILABLE"
+                if gex_evolution.get(
+                    "available",
+                    False,
+                )
+                else "UNAVAILABLE"
+            ),
+        }
+
+        available_components = sum(
+            1
+            for state in component_states.values()
+            if state in (
+                "USABLE",
+                "AVAILABLE",
+                "COMPLETE",
+            )
+        )
+
+        total_components = len(
+            component_states
+        )
+
+        overall_quality = (
+            "COMPLETE"
+            if (
+                synchronized
+                and option_chain_quality.get(
+                    "status"
+                ) == "COMPLETE"
+                and option_chain_quality.get(
+                    "pcr_oi_usable",
+                    False,
+                )
+                and iv_surface.get(
+                    "usable",
+                    False,
+                )
+                and gex_quality.get(
+                    "full_chain_usable",
+                    False,
+                )
+            )
+            else "PARTIAL"
+        )
+
+        return {
+            "version": (
+                "options_intelligence_v1"
+            ),
+
+            "underlying": "NIFTY",
+
+            "expiry_date": expiry_date,
+
+            "timestamp": timestamp,
+
+            "synchronization": {
+                "timestamp_aligned": synchronized,
+            },
+
+            "market_inputs": {
+                "spot_price": spot,
+
+                "futures_price": (
+                    futures.get("price")
+                ),
+
+                "futures_basis_points": (
+                    futures.get("basis_points")
+                ),
+
+                "futures_basis_pct": (
+                    futures.get("basis_pct")
+                ),
+
+                "india_vix": (
+                    india_vix.get("value")
+                ),
+
+                "india_vix_direction": (
+                    india_vix.get("direction")
+                ),
+            },
+
+            "option_chain": {
+                "status": (
+                    option_chain_quality.get(
+                        "status"
+                    )
+                ),
+
+                "expected_contracts": (
+                    option_chain_quality.get(
+                        "expected_contracts"
+                    )
+                ),
+
+                "observed_contracts": (
+                    option_chain_quality.get(
+                        "observed_contracts"
+                    )
+                ),
+
+                "coverage_pct": (
+                    option_chain_quality.get(
+                        "coverage_pct"
+                    )
+                ),
+
+                "atm_usable": (
+                    option_chain_quality.get(
+                        "atm_usable"
+                    )
+                ),
+
+                "observed_atm_strike": (
+                    option_chain_quality.get(
+                        "observed_atm_strike"
+                    )
+                ),
+
+                "observed_atm_distance_pct": (
+                    option_chain_quality.get(
+                        "observed_atm_distance_pct"
+                    )
+                ),
+            },
+
+            "oi_pcr": {
+                "call_oi": (
+                    call_oi
+                    if option_chain_quality.get(
+                        "pcr_oi_usable",
+                        False,
+                    )
+                    else None
+                ),
+
+                "put_oi": (
+                    put_oi
+                    if option_chain_quality.get(
+                        "pcr_oi_usable",
+                        False,
+                    )
+                    else None
+                ),
+
+                "pcr": (
+                    pcr_oi
+                    if option_chain_quality.get(
+                        "pcr_oi_usable",
+                        False,
+                    )
+                    else None
+                ),
+
+                "raw_call_oi": call_oi,
+
+                "raw_put_oi": put_oi,
+
+                "raw_pcr": pcr_oi,
+
+                "usable": (
+                    option_chain_quality.get(
+                        "pcr_oi_usable"
+                    )
+                ),
+
+                "scope": (
+                    option_chain_quality.get(
+                        "pcr_scope"
+                    )
+                ),
+            },
+
+            "atm": {
+                "spot_atm_strike": (
+                    option_chain_quality.get(
+                        "expected_atm_strike"
+                    )
+                ),
+
+                "observed_atm_strike": (
+                    option_chain_quality.get(
+                        "observed_atm_strike"
+                    )
+                ),
+
+                "call_price": (
+                    option_chain_quality.get(
+                        "observed_atm_call_price"
+                    )
+                ),
+
+                "put_price": (
+                    option_chain_quality.get(
+                        "observed_atm_put_price"
+                    )
+                ),
+
+                "usable": (
+                    option_chain_quality.get(
+                        "atm_usable"
+                    )
+                ),
+            },
+
+            "iv_surface": {
+                "status": (
+                    iv_surface.get(
+                        "status"
+                    )
+                ),
+
+                "usable": (
+                    iv_surface.get(
+                        "usable"
+                    )
+                ),
+
+                "timestamp_aligned": (
+                    iv_surface.get(
+                        "timestamp_aligned"
+                    )
+                ),
+
+                "valid_iv_contracts": (
+                    iv_surface.get(
+                        "valid_iv_contracts"
+                    )
+                ),
+
+                "valid_iv_coverage_pct": (
+                    iv_surface.get(
+                        "valid_iv_coverage_pct"
+                    )
+                ),
+
+                "spot_atm_strike": (
+                    iv_surface.get(
+                        "spot_atm_strike"
+                    )
+                ),
+
+                "forward_atm_strike": (
+                    iv_surface.get(
+                        "forward_atm_strike"
+                    )
+                ),
+
+                "atm_iv": (
+                    iv_surface.get(
+                        "atm_iv"
+                    )
+                ),
+
+                "atm_call_iv": (
+                    iv_surface.get(
+                        "atm_call_iv"
+                    )
+                ),
+
+                "atm_put_iv": (
+                    iv_surface.get(
+                        "atm_put_iv"
+                    )
+                ),
+
+                "call_25d_iv": (
+                    iv_surface.get(
+                        "call_25d_iv"
+                    )
+                ),
+
+                "put_25d_iv": (
+                    iv_surface.get(
+                        "put_25d_iv"
+                    )
+                ),
+
+                "call_25d_status": (
+                    iv_surface.get(
+                        "call_25d_status"
+                    )
+                ),
+
+                "put_25d_status": (
+                    iv_surface.get(
+                        "put_25d_status"
+                    )
+                ),
+
+                "call_skew_vs_atm": (
+                    iv_surface.get(
+                        "call_skew_vs_atm"
+                    )
+                ),
+
+                "put_skew_vs_atm": (
+                    iv_surface.get(
+                        "put_skew_vs_atm"
+                    )
+                ),
+
+                "put_call_iv_skew": (
+                    iv_surface.get(
+                        "put_call_iv_skew"
+                    )
+                ),
+
+                "iv_min": (
+                    iv_surface.get(
+                        "iv_min"
+                    )
+                ),
+
+                "iv_max": (
+                    iv_surface.get(
+                        "iv_max"
+                    )
+                ),
+
+                "iv_median": (
+                    iv_surface.get(
+                        "iv_median"
+                    )
+                ),
+
+                "surface": (
+                    iv_surface.get(
+                        "surface",
+                        [],
+                    )
+                ),
+            },
+
+            "gex": {
+                "available": (
+                    gex.get("available")
+                ),
+
+                "timestamp": (
+                    gex.get("timestamp")
+                ),
+
+                "strike_count": (
+                    gex.get("strike_count")
+                ),
+
+                "complete_ce_pe_strikes": (
+                    gex.get(
+                        "complete_ce_pe_strikes"
+                    )
+                ),
+
+                "gex_pair_coverage_pct": (
+                    gex.get(
+                        "gex_pair_coverage_pct"
+                    )
+                ),
+
+                "total_call_gex": (
+                    gex.get(
+                        "total_call_gex"
+                    )
+                ),
+
+                "total_put_gex": (
+                    gex.get(
+                        "total_put_gex"
+                    )
+                ),
+
+                "total_gross_gex": (
+                    gex.get(
+                        "total_gross_gex"
+                    )
+                ),
+
+                "total_net_gex": (
+                    gex.get(
+                        "total_net_gex"
+                    )
+                ),
+
+                "gex_dominance_pct": (
+                    gex.get(
+                        "gex_dominance_pct"
+                    )
+                ),
+
+                "net_gex_state": (
+                    gex.get(
+                        "net_gex_state"
+                    )
+                ),
+
+                "highest_positive_strike": (
+                    gex.get(
+                        "highest_positive_strike"
+                    )
+                ),
+
+                "highest_positive_net_gex": (
+                    gex.get(
+                        "highest_positive_net_gex"
+                    )
+                ),
+
+                "most_negative_strike": (
+                    gex.get(
+                        "most_negative_strike"
+                    )
+                ),
+
+                "most_negative_net_gex": (
+                    gex.get(
+                        "most_negative_net_gex"
+                    )
+                ),
+            },
+
+            "gex_evolution": {
+                "available": (
+                    gex_evolution.get(
+                        "available"
+                    )
+                ),
+
+                "timestamp_gap_seconds": (
+                    gex_evolution.get(
+                        "timestamp_gap_seconds"
+                    )
+                ),
+
+                "net_gex_change": (
+                    gex_evolution.get(
+                        "net_gex_change"
+                    )
+                ),
+
+                "net_gex_change_pct": (
+                    gex_evolution.get(
+                        "net_gex_change_pct"
+                    )
+                ),
+
+                "gross_gex_change": (
+                    gex_evolution.get(
+                        "gross_gex_change"
+                    )
+                ),
+
+                "call_gex_change": (
+                    gex_evolution.get(
+                        "call_gex_change"
+                    )
+                ),
+
+                "put_gex_change": (
+                    gex_evolution.get(
+                        "put_gex_change"
+                    )
+                ),
+
+                "net_gex_direction": (
+                    gex_evolution.get(
+                        "net_gex_direction"
+                    )
+                ),
+            },
+
+            "quality": {
+                "overall_status": (
+                    overall_quality
+                ),
+
+                "component_states": (
+                    component_states
+                ),
+
+                "available_components": (
+                    available_components
+                ),
+
+                "total_components": (
+                    total_components
+                ),
+
+                "option_chain_status": (
+                    option_chain_quality.get(
+                        "status"
+                    )
+                ),
+
+                "pcr_usable": (
+                    option_chain_quality.get(
+                        "pcr_oi_usable"
+                    )
+                ),
+
+                "iv_surface_usable": (
+                    iv_surface.get(
+                        "usable"
+                    )
+                ),
+
+                "gex_full_chain_usable": (
+                    gex_quality.get(
+                        "full_chain_usable"
+                    )
+                ),
+
+                "gex_atm_window_usable": (
+                    gex_quality.get(
+                        "atm_window_usable"
+                    )
+                ),
+
+                "timestamp_aligned": (
+                    synchronized
+                ),
+            },
+        }
+
+    # =========================================================
+    # =========================================================
     # BUILD
     # =========================================================
 
@@ -2406,6 +3028,41 @@ class MarketRegimeContext:
             )
         )
 
+        # =====================================================
+        # OPTIONS INTELLIGENCE
+        # =====================================================
+
+        options_intelligence = (
+            self._build_options_intelligence(
+                expiry_date=expiry_date,
+                timestamp=current_timestamp,
+                spot=spot,
+                futures={
+                    "price": futures,
+                    "basis_points": basis,
+                    "basis_pct": basis_pct,
+                },
+                india_vix={
+                    "value": vix,
+                    "direction": self._direction(
+                        vix,
+                        previous_vix,
+                    ),
+                },
+                call_oi=call_oi_raw,
+                put_oi=put_oi_raw,
+                pcr_oi=pcr_raw,
+                option_chain_quality=(
+                    option_chain_quality
+                ),
+                iv_surface=iv_surface,
+                gex=gex,
+                gex_evolution=gex_evolution,
+                gex_quality=gex_quality,
+                synchronized=True,
+            )
+        )
+
         gex_timestamp = (
             int(gex["timestamp"])
             if gex["timestamp"] is not None
@@ -2626,6 +3283,10 @@ class MarketRegimeContext:
                 iv_surface
             ),
 
+            "options_intelligence": (
+                options_intelligence
+            ),
+
             "gex": gex,
 
             "gex_evolution": (
@@ -2683,6 +3344,14 @@ class MarketRegimeContext:
                 "iv_surface_timestamp_aligned": (
                     iv_surface[
                         "timestamp_aligned"
+                    ]
+                ),
+
+                "options_intelligence_status": (
+                    options_intelligence[
+                        "quality"
+                    ][
+                        "overall_status"
                     ]
                 ),
 

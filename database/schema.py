@@ -9,7 +9,7 @@ from pathlib import Path
 # DATABASE SCHEMA
 # ============================================================
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 SCHEMA_SQL = """
@@ -558,6 +558,22 @@ CREATE TABLE IF NOT EXISTS gex_snapshots (
 
     calculation_version TEXT,
 
+    gex_quality TEXT,
+
+    expiry_state TEXT,
+
+    dte_seconds INTEGER,
+
+    dte_minutes REAL,
+
+    max_gamma REAL,
+
+    gamma_1pct REAL,
+
+    extreme_gamma INTEGER DEFAULT 0,
+
+    quality_flags TEXT,
+
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE (
@@ -955,6 +971,82 @@ def migrate_schema(
         CREATE INDEX IF NOT EXISTS
         idx_download_jobs_instrument
         ON download_jobs(instrument_id)
+        """
+    )
+
+        # --------------------------------------------------------
+    # Version 3 → Version 4
+    #
+    # Persist GEX quality metadata.
+    #
+    # Existing GEX data is preserved.
+    # --------------------------------------------------------
+
+    _add_column_if_missing(
+        connection,
+        "gex_snapshots",
+        "gex_quality",
+        "TEXT",
+    )
+
+    _add_column_if_missing(
+        connection,
+        "gex_snapshots",
+        "expiry_state",
+        "TEXT",
+    )
+
+    _add_column_if_missing(
+        connection,
+        "gex_snapshots",
+        "dte_seconds",
+        "INTEGER",
+    )
+
+    _add_column_if_missing(
+        connection,
+        "gex_snapshots",
+        "dte_minutes",
+        "REAL",
+    )
+
+    _add_column_if_missing(
+        connection,
+        "gex_snapshots",
+        "max_gamma",
+        "REAL",
+    )
+
+    _add_column_if_missing(
+        connection,
+        "gex_snapshots",
+        "gamma_1pct",
+        "REAL",
+    )
+
+    _add_column_if_missing(
+        connection,
+        "gex_snapshots",
+        "extreme_gamma",
+        "INTEGER DEFAULT 0",
+    )
+
+    _add_column_if_missing(
+        connection,
+        "gex_snapshots",
+        "quality_flags",
+        "TEXT",
+    )
+
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS
+        idx_gex_quality
+        ON gex_snapshots(
+            expiry_date,
+            gex_quality,
+            timestamp
+        )
         """
     )
 

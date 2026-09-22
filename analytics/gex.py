@@ -782,39 +782,26 @@ class GEXEngine:
                 )
             )
 
-            snapshot[
-                "gex_quality"
-            ] = quality[
-                "gex_quality"
-            ]
+            snapshot["gex_quality"] = quality["gex_quality"]
 
-            snapshot[
-                "dte_seconds"
-            ] = quality[
-                "dte_seconds"
-            ]
+            snapshot["expiry_state"] = quality["expiry_state"]
 
-            snapshot[
-                "dte_minutes"
-            ] = quality[
-                "dte_minutes"
-            ]
+            snapshot["dte_seconds"] = quality["dte_seconds"]
 
-            snapshot[
-                "gamma_1pct"
-            ] = quality[
-                "gamma_1pct"
-            ]
+            snapshot["dte_minutes"] = quality["dte_minutes"]
 
-            snapshot[
-                "quality_flags"
-            ] = quality[
-                "quality_flags"
-            ]
+            snapshot["max_gamma"] = quality["max_gamma"]
+
+            snapshot["gamma_1pct"] = quality["gamma_1pct"]
+
+            snapshot["extreme_gamma"] = quality["extreme_gamma"]
+
+            snapshot["quality_flags"] = quality["quality_flags"]
 
             snapshots.append(
                 snapshot
             )
+
 
         snapshots.sort(
             key=lambda row: (
@@ -852,7 +839,7 @@ class GEXEngine:
             ),
         }
 
-    # ---------------------------------------------------------
+        # ---------------------------------------------------------
     # Store snapshots
     # ---------------------------------------------------------
 
@@ -882,9 +869,25 @@ class GEXEngine:
             gross_gex,
             net_gex,
             gex_convention,
-            calculation_version
+            calculation_version,
+            gex_quality,
+            expiry_state,
+            dte_seconds,
+            dte_minutes,
+            max_gamma,
+            gamma_1pct,
+            extreme_gamma,
+            quality_flags
         )
         VALUES (
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
             ?,
             ?,
             ?,
@@ -922,6 +925,17 @@ class GEXEngine:
                 row["net_gex"],
                 row["gex_convention"],
                 row["calculation_version"],
+                row["gex_quality"],
+                row["expiry_state"],
+                row["dte_seconds"],
+                row["dte_minutes"],
+                row["max_gamma"],
+                row["gamma_1pct"],
+                int(row["extreme_gamma"]),
+                json.dumps(
+                    row["quality_flags"],
+                    separators=(",", ":"),
+                ),
             )
             for row in snapshots
         ]
@@ -936,7 +950,7 @@ class GEXEngine:
             connection.commit()
 
         return len(records)
-
+    
     # ---------------------------------------------------------
     # Summary
     # ---------------------------------------------------------

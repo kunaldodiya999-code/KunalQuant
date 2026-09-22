@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import argparse
@@ -11,15 +12,18 @@ from config.settings import DATABASE_PATH
 
 class GEXProfileEngine:
     """
-    Kunal Quant - GEX Profile Engine V1.
+    Kunal Quant - GEX Profile Engine V1.2.
 
     Read-only analytical layer built on top of the validated
     gex_snapshots table.
 
-    It does NOT recalculate GEX.
+    V1.2 adds:
+        - spot-centered ATM detection
+        - configurable ATM strike window
+        - ATM-window GEX totals
+        - positive / negative GEX filtering
 
-    It aggregates already calculated GEX snapshots into a
-    strike-level profile and a latest-market summary.
+    This engine does NOT recalculate GEX.
     """
 
     UNDERLYING = "NIFTY"
@@ -33,6 +37,10 @@ class GEXProfileEngine:
         "gex_v1_black76_ltp"
     )
 
+    # =========================================================
+    # DATABASE
+    # =========================================================
+
     def __init__(
         self,
         database_path: Path | str = DATABASE_PATH,
@@ -41,10 +49,6 @@ class GEXProfileEngine:
         self.database_path = Path(
             database_path
         )
-
-    # =========================================================
-    # DATABASE
-    # =========================================================
 
     def _connect(self) -> sqlite3.Connection:
 
@@ -57,7 +61,7 @@ class GEXProfileEngine:
         return connection
 
     # =========================================================
-    # LOAD LATEST TIMESTAMP
+    # LATEST TIMESTAMP
     # =========================================================
 
     def get_latest_timestamp(
@@ -97,13 +101,14 @@ class GEXProfileEngine:
         )
 
     # =========================================================
-    # STRIKE PROFILE
+    # LATEST PROFILE
     # =========================================================
 
     def get_latest_profile(
         self,
         expiry_date: str,
         top_n: int = 10,
+        atm_radius: int = 2,
     ) -> dict:
 
         latest_timestamp = (
@@ -159,36 +164,65 @@ class GEXProfileEngine:
             for row in rows
         ]
 
-        # -----------------------------------------------------
-        # ATM / SPOT-CENTERED INFORMATION
-        # -----------------------------------------------------
-
-        if profile:
-            spot_price = float(
-                profile[0]["spot_price"]
+        if not profile:
+            raise ValueError(
+                "Latest GEX timestamp contains "
+                "no strike-level snapshots."
             )
 
-            atm_row = min(
-                profile,
-                key=lambda row: abs(
-                    float(row["strike"])
-                    - spot_price
-                ),
-            )
+        # =====================================================
+        # SPOT / ATM
+        # =====================================================
 
-            atm_strike = float(
-                atm_row["strike"]
-            )
+        spot_price = float(
+            profile[0]["spot_price"]
+        )
 
-            atm_distance = (
-                spot_price
-                - atm_strike
-            )
+        atm_index = min(
+            range(len(profile)),
+            key=lambda index: abs(
+                float(profile[index]["strike"])
+                - spot_price
+            ),
+        )
 
-        else:
-            spot_price = None
-            atm_strike = None
-            atm_distance = None
+        atm_row = profile[atm_index]
+
+        atm_strike = float(
+            atm_row["strike"]
+        )
+
+        atm_distance = (
+            spot_price
+            - atm_strike
+        )
+
+        # =====================================================
+        # ATM WINDOW
+        # =====================================================
+
+        radius = max(
+            0,
+            int(atm_radius),
+        )
+
+        window_start = max(
+            0,
+            atm_index - radius,
+        )
+
+        window_end = min(
+            len(profile),
+            atm_index + radius + 1,
+        )
+
+        atm_window = profile[
+            window_start:window_end
+        ]
+
+        # =====================================================
+        # POSITIVE / NEGATIVE RANKING
+        # =====================================================
 
         positive = sorted(
             [
@@ -213,14 +247,65 @@ class GEXProfileEngine:
             ),
         )
 
+        # =====================================================
+        # ATM WINDOW SUMMARY
+        # =====================================================
+
+        atm_call_gex = sum(
+            float(row["call_gex"] or 0.0)
+            for row in atm_window
+        )
+
+        atm_put_gex = sum(
+            float(row["put_gex"] or 0.0)
+            for row in atm_window
+        )
+
+        atm_gross_gex = sum(
+            float(row["gross_gex"] or 0.0)
+            for row in atm_window
+        )
+
+        atm_net_gex = sum(
+            float(row["net_gex"] or 0.0)
+            for row in atm_window
+        )
+
         return {
             "expiry_date": expiry_date,
             "timestamp": latest_timestamp,
             "strike_count": len(profile),
+
             "spot_price": spot_price,
             "atm_strike": atm_strike,
             "atm_distance_points": atm_distance,
+
+            "atm_radius": radius,
+
+            "atm_window_min_strike": float(
+                atm_window[0]["strike"]
+            ),
+            "atm_window_max_strike": float(
+                atm_window[-1]["strike"]
+            ),
+
+            "atm_window": atm_window,
+
+            "atm_window_call_gex": (
+                atm_call_gex
+            ),
+            "atm_window_put_gex": (
+                atm_put_gex
+            ),
+            "atm_window_gross_gex": (
+                atm_gross_gex
+            ),
+            "atm_window_net_gex": (
+                atm_net_gex
+            ),
+
             "profile": profile,
+
             "top_positive_net_gex": [
                 {
                     "strike": row["strike"],
@@ -228,6 +313,7 @@ class GEXProfileEngine:
                 }
                 for row in positive[:top_n]
             ],
+
             "top_negative_net_gex": [
                 {
                     "strike": row["strike"],
@@ -311,6 +397,7 @@ class GEXProfileEngine:
                   AND gex_convention = ?
                   AND calculation_version = ?
                   AND timestamp = ?
+                  AND net_gex > 0
                 ORDER BY net_gex DESC
                 LIMIT 1
                 """,
@@ -336,6 +423,7 @@ class GEXProfileEngine:
                   AND gex_convention = ?
                   AND calculation_version = ?
                   AND timestamp = ?
+                  AND net_gex < 0
                 ORDER BY net_gex ASC
                 LIMIT 1
                 """,
@@ -351,41 +439,51 @@ class GEXProfileEngine:
 
         return {
             "timestamp": latest_timestamp,
+
             "strike_count": int(
                 row["strike_count"] or 0
             ),
+
             "average_spot": (
                 float(row["average_spot"])
                 if row["average_spot"] is not None
                 else None
             ),
+
             "total_call_gex": float(
                 row["total_call_gex"] or 0.0
             ),
+
             "total_put_gex": float(
                 row["total_put_gex"] or 0.0
             ),
+
             "total_gross_gex": float(
                 row["total_gross_gex"] or 0.0
             ),
+
             "total_net_gex": float(
                 row["total_net_gex"] or 0.0
             ),
+
             "highest_positive_strike": (
                 float(max_positive["strike"])
                 if max_positive is not None
                 else None
             ),
+
             "highest_positive_net_gex": (
                 float(max_positive["net_gex"])
                 if max_positive is not None
                 else None
             ),
+
             "most_negative_strike": (
                 float(max_negative["strike"])
                 if max_negative is not None
                 else None
             ),
+
             "most_negative_net_gex": (
                 float(max_negative["net_gex"])
                 if max_negative is not None
@@ -394,48 +492,146 @@ class GEXProfileEngine:
         }
 
     # =========================================================
-    # FULL PROFILE
+    # BUILD PROFILE
     # =========================================================
 
     def build_profile(
         self,
         expiry_date: str,
         top_n: int = 10,
+        atm_radius: int = 2,
     ) -> dict:
 
         profile = self.get_latest_profile(
             expiry_date=expiry_date,
             top_n=top_n,
+            atm_radius=atm_radius,
         )
 
         summary = self.get_latest_summary(
             expiry_date=expiry_date
         )
 
+        summary.update(
+            {
+                "atm_strike": (
+                    profile["atm_strike"]
+                ),
+                "atm_distance_points": (
+                    profile[
+                        "atm_distance_points"
+                    ]
+                ),
+                "atm_window_min_strike": (
+                    profile[
+                        "atm_window_min_strike"
+                    ]
+                ),
+                "atm_window_max_strike": (
+                    profile[
+                        "atm_window_max_strike"
+                    ]
+                ),
+                "atm_window_call_gex": (
+                    profile[
+                        "atm_window_call_gex"
+                    ]
+                ),
+                "atm_window_put_gex": (
+                    profile[
+                        "atm_window_put_gex"
+                    ]
+                ),
+                "atm_window_gross_gex": (
+                    profile[
+                        "atm_window_gross_gex"
+                    ]
+                ),
+                "atm_window_net_gex": (
+                    profile[
+                        "atm_window_net_gex"
+                    ]
+                ),
+            }
+        )
+
         return {
             "underlying": self.UNDERLYING,
             "expiry_date": expiry_date,
             "resolution": self.RESOLUTION,
-            "gex_convention": self.GEX_CONVENTION,
+
+            "gex_convention": (
+                self.GEX_CONVENTION
+            ),
+
             "calculation_version": (
                 self.CALCULATION_VERSION
             ),
-            "spot_price": profile.get(
-                "spot_price"
+
+            "spot_price": profile["spot_price"],
+            "atm_strike": profile["atm_strike"],
+            "atm_distance_points": (
+                profile["atm_distance_points"]
             ),
-            "atm_strike": profile.get(
-                "atm_strike"
+
+            "atm_radius": profile["atm_radius"],
+
+            "atm_window_min_strike": (
+                profile[
+                    "atm_window_min_strike"
+                ]
             ),
-            "atm_distance_points": profile.get(
-                "atm_distance_points"
+
+            "atm_window_max_strike": (
+                profile[
+                    "atm_window_max_strike"
+                ]
             ),
+
+            "atm_window": profile[
+                "atm_window"
+            ],
+
+            "atm_window_call_gex": (
+                profile[
+                    "atm_window_call_gex"
+                ]
+            ),
+
+            "atm_window_put_gex": (
+                profile[
+                    "atm_window_put_gex"
+                ]
+            ),
+
+            "atm_window_gross_gex": (
+                profile[
+                    "atm_window_gross_gex"
+                ]
+            ),
+
+            "atm_window_net_gex": (
+                profile[
+                    "atm_window_net_gex"
+                ]
+            ),
+
             "summary": summary,
-            "profile": profile["profile"],
+
+            "profile": profile[
+                "profile"
+            ],
+
             "top_positive_net_gex": (
-                profile["top_positive_net_gex"]
+                profile[
+                    "top_positive_net_gex"
+                ]
             ),
+
             "top_negative_net_gex": (
-                profile["top_negative_net_gex"]
+                profile[
+                    "top_negative_net_gex"
+                ]
             ),
         }
 
@@ -448,6 +644,7 @@ class GEXProfileEngine:
         return self.build_profile(
             expiry_date="2024-11-28",
             top_n=5,
+            atm_radius=2,
         )
 
 
@@ -459,7 +656,8 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Kunal Quant - GEX Profile Engine V1"
+            "Kunal Quant - "
+            "GEX Profile Engine V1.2"
         )
     )
 
@@ -481,6 +679,16 @@ def main() -> None:
         type=int,
         default=10,
         help="Number of top positive/negative strikes.",
+    )
+
+    parser.add_argument(
+        "--atm-radius",
+        type=int,
+        default=2,
+        help=(
+            "Number of strikes on each side "
+            "of ATM. Default: 2."
+        ),
     )
 
     args = parser.parse_args()
@@ -505,11 +713,18 @@ def main() -> None:
                 1,
                 args.top_n,
             ),
+            atm_radius=max(
+                0,
+                args.atm_radius,
+            ),
         )
 
     print()
     print("=" * 75)
-    print("KUNAL QUANT - GEX PROFILE ENGINE V1")
+    print(
+        "KUNAL QUANT - "
+        "GEX PROFILE ENGINE V1.2"
+    )
     print("=" * 75)
 
     print(

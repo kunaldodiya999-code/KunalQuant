@@ -1,0 +1,2079 @@
+
+from __future__ import annotations
+
+import argparse
+import json
+import sqlite3
+from pathlib import Path
+
+from config.settings import DATABASE_PATH
+
+
+class MarketRegimeContext:
+    """
+    Kunal Quant - Market Regime Context V1.1.
+
+    Combines existing market analytics into one synchronized,
+    quality-aware descriptive market state.
+
+    Sources:
+
+        NIFTY spot
+        NIFTY futures
+        Futures-spot basis
+        India VIX
+        Option OI / PCR
+        ATM option data
+        GEX profile
+
+    V1.1 adds:
+
+        Option Chain Quality Guard
+
+    IMPORTANT:
+
+        This is NOT a trading signal engine.
+
+        It does not recommend trades.
+
+        It identifies whether the underlying data is sufficiently
+        complete for downstream analytical use.
+
+    No database writes are performed.
+    """
+
+    UNDERLYING = "NIFTY"
+    RESOLUTION = "1"
+
+    MARKET_CONTEXT_VERSION = "market_context_v1"
+
+    GEX_CONVENTION = (
+        "CALL_POSITIVE_PUT_NEGATIVE"
+    )
+
+    GEX_VERSION = "gex_v1_black76_ltp"
+
+    # =========================================================
+    # QUALITY THRESHOLDS
+    # =========================================================
+
+    # Maximum acceptable distance between the nearest observed
+    # CE+PE pair and spot for the observed ATM to be considered
+    # usable.
+    ATM_MAX_DISTANCE_PCT = 1.0
+
+    # Number of strikes around the expected ATM used to judge
+    # whether PCR/OI information is sufficiently populated.
+    PCR_ATM_WINDOW_RADIUS = 5
+
+    # Minimum paired CE+PE coverage inside the ATM window.
+    PCR_MIN_PAIRED_COVERAGE_PCT = 70.0
+
+    # Minimum overall option-chain coverage required before
+    # the full-chain PCR is considered usable.
+    PCR_MIN_CHAIN_COVERAGE_PCT = 90.0
+
+    # Minimum entire-expiry strike coverage required before
+    # GEX can be treated as full-chain GEX.
+    GEX_MIN_FULL_CHAIN_COVERAGE_PCT = 90.0
+
+    # Number of strikes on each side of ATM used for local
+    # GEX completeness.
+    GEX_ATM_WINDOW_RADIUS = 2
+
+    # Minimum paired CE+PE coverage inside the local GEX
+    # window.
+    GEX_MIN_ATM_PAIR_COVERAGE_PCT = 70.0
+
+    # =========================================================
+    # DATABASE
+    # =========================================================
+
+    def __init__(
+        self,
+        database_path: Path | str = DATABASE_PATH,
+    ) -> None:
+
+        self.database_path = Path(
+            database_path
+        )
+
+    def _connect(self) -> sqlite3.Connection:
+
+        connection = sqlite3.connect(
+            self.database_path
+        )
+
+        connection.row_factory = sqlite3.Row
+
+        return connection
+
+    # =========================================================
+    # HELPERS
+    # =========================================================
+
+    @staticmethod
+    def _direction(
+        current: float | int | None,
+        previous: float | int | None,
+    ) -> str:
+
+        if current is None or previous is None:
+            return "UNAVAILABLE"
+
+        if current > previous:
+            return "RISING"
+
+        if current < previous:
+            return "FALLING"
+
+        return "FLAT"
+
+    @staticmethod
+    def _safe_pct(
+        numerator: float | None,
+        denominator: float | None,
+    ) -> float | None:
+
+        if numerator is None or denominator in (
+            None,
+            0,
+        ):
+            return None
+
+        return (
+            float(numerator)
+            / abs(float(denominator))
+        ) * 100.0
+
+    # =========================================================
+    # MARKET STATE SUMMARY
+    # =========================================================
+
+    @staticmethod
+    def _build_market_state_summary(
+        spot_direction: str,
+        basis: float | None,
+        vix_direction: str,
+        option_chain_status: str,
+        atm_data_usable: bool,
+        pcr_oi_usable: bool,
+        gex_full_chain_usable: bool,
+        gex_atm_window_usable: bool,
+        market_context_available: bool,
+        gex_available: bool,
+        timestamps_aligned: bool,
+    ) -> dict:
+        """
+        Build a descriptive market-data state summary.
+
+        This function does NOT generate a trading signal.
+        """
+
+        if basis is None:
+            basis_state = "UNAVAILABLE"
+
+        elif basis > 0:
+            basis_state = "PREMIUM"
+
+        elif basis < 0:
+            basis_state = "DISCOUNT"
+
+        else:
+            basis_state = "FLAT"
+
+        if not market_context_available:
+            overall_status = "UNAVAILABLE"
+
+        elif (
+            market_context_available
+            and gex_available
+            and option_chain_status == "COMPLETE"
+            and pcr_oi_usable
+            and gex_full_chain_usable
+            and timestamps_aligned
+        ):
+            overall_status = "COMPLETE"
+
+        else:
+            overall_status = "PARTIAL"
+
+        return {
+            "overall_data_status": overall_status,
+
+            "price_direction": spot_direction,
+
+            "futures_basis_state": basis_state,
+
+            "india_vix_direction": vix_direction,
+
+            "option_chain_status": (
+                option_chain_status
+            ),
+
+            "atm_data_status": (
+                "USABLE"
+                if atm_data_usable
+                else "NOT_USABLE"
+            ),
+
+            "pcr_status": (
+                "USABLE"
+                if pcr_oi_usable
+                else "NOT_USABLE"
+            ),
+
+            "gex_full_chain_status": (
+                "USABLE"
+                if gex_full_chain_usable
+                else "NOT_USABLE"
+            ),
+
+            "gex_atm_window_status": (
+                "USABLE"
+                if gex_atm_window_usable
+                else "NOT_USABLE"
+            ),
+
+            "market_context_available": (
+                market_context_available
+            ),
+
+            "gex_available": (
+                gex_available
+            ),
+
+            "timestamps_aligned": (
+                timestamps_aligned
+            ),
+        }
+
+    # =========================================================
+    # MARKET CONTEXT ROWS
+    # =========================================================
+
+    def _get_market_context_rows(
+        self,
+        limit: int = 2,
+    ) -> list[dict]:
+
+        query = """
+        SELECT
+            timestamp,
+            resolution,
+            underlying,
+
+            spot_price,
+            futures_price,
+            futures_oi,
+            futures_oi_change,
+
+            india_vix,
+            india_vix_change,
+            india_vix_change_pct,
+
+            total_call_oi,
+            total_put_oi,
+
+            call_oi_change,
+            put_oi_change,
+
+            pcr_oi,
+            pcr_oi_change,
+
+            atm_strike,
+            atm_call_price,
+            atm_put_price,
+
+            atm_call_iv,
+            atm_put_iv,
+
+            calculation_version
+
+        FROM market_context
+
+        WHERE underlying = ?
+          AND resolution = ?
+          AND calculation_version = ?
+
+        ORDER BY timestamp DESC
+
+        LIMIT ?
+        """
+
+        with self._connect() as connection:
+
+            rows = connection.execute(
+                query,
+                (
+                    self.UNDERLYING,
+                    self.RESOLUTION,
+                    self.MARKET_CONTEXT_VERSION,
+                    max(1, int(limit)),
+                ),
+            ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    # =========================================================
+    # EXPECTED OPTION UNIVERSE
+    # =========================================================
+
+    def _get_expected_option_universe(
+        self,
+        expiry_date: str,
+    ) -> list[dict]:
+
+        query = """
+        SELECT
+            id,
+            symbol,
+            strike,
+            option_type
+
+        FROM instruments
+
+        WHERE broker = 'FYERS'
+          AND underlying = ?
+          AND expiry_date = ?
+          AND option_type IN ('CE', 'PE')
+        """
+
+        with self._connect() as connection:
+
+            rows = connection.execute(
+                query,
+                (
+                    self.UNDERLYING,
+                    expiry_date,
+                ),
+            ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    # =========================================================
+    # EXPECTED STRIKE UNIVERSE
+    # =========================================================
+
+    def _get_expected_strikes(
+        self,
+        expiry_date: str,
+    ) -> list[float]:
+
+        query = """
+        SELECT DISTINCT strike
+        FROM instruments
+        WHERE broker = 'FYERS'
+          AND underlying = ?
+          AND expiry_date = ?
+          AND option_type IN ('CE', 'PE')
+          AND strike IS NOT NULL
+        ORDER BY strike
+        """
+
+        with self._connect() as connection:
+
+            rows = connection.execute(
+                query,
+                (
+                    self.UNDERLYING,
+                    expiry_date,
+                ),
+            ).fetchall()
+
+        return sorted(
+            {
+                float(row["strike"])
+                for row in rows
+                if row["strike"] is not None
+            }
+        )
+
+    # =========================================================
+    # GEX QUALITY GUARD
+    # =========================================================
+
+    def _build_gex_quality(
+        self,
+        expiry_date: str,
+        timestamp: int,
+        spot_price: float | None,
+        gex_rows: list[dict],
+    ) -> dict:
+
+        expected_strikes = (
+            self._get_expected_strikes(
+                expiry_date
+            )
+        )
+
+        expected_count = len(
+            expected_strikes
+        )
+
+        gex_strikes = sorted(
+            {
+                float(row["strike"])
+                for row in gex_rows
+                if row["strike"] is not None
+            }
+        )
+
+        gex_strike_count = len(
+            gex_strikes
+        )
+
+        full_chain_coverage_pct = (
+            gex_strike_count
+            / expected_count
+            * 100.0
+            if expected_count
+            else 0.0
+        )
+
+        complete_pair_count = sum(
+            1
+            for row in gex_rows
+            if (
+                row["call_gamma"] is not None
+                and row["put_gamma"] is not None
+            )
+        )
+
+        pair_coverage_pct = (
+            complete_pair_count
+            / gex_strike_count
+            * 100.0
+            if gex_strike_count
+            else 0.0
+        )
+
+        expected_atm_strike = None
+
+        expected_atm_index = None
+
+        if (
+            spot_price is not None
+            and expected_strikes
+        ):
+
+            expected_atm_index = min(
+                range(
+                    len(expected_strikes)
+                ),
+                key=lambda index: abs(
+                    expected_strikes[index]
+                    - spot_price
+                ),
+            )
+
+            expected_atm_strike = (
+                expected_strikes[
+                    expected_atm_index
+                ]
+            )
+
+        gex_atm_strike = None
+
+        gex_atm_distance_points = None
+
+        gex_atm_distance_pct = None
+
+        if (
+            spot_price is not None
+            and gex_strikes
+        ):
+
+            gex_atm_strike = min(
+                gex_strikes,
+                key=lambda strike: abs(
+                    strike
+                    - spot_price
+                ),
+            )
+
+            gex_atm_distance_points = (
+                spot_price
+                - gex_atm_strike
+            )
+
+            gex_atm_distance_pct = (
+                abs(
+                    gex_atm_distance_points
+                )
+                / abs(spot_price)
+                * 100.0
+                if spot_price != 0
+                else None
+            )
+
+        # =====================================================
+        # ATM GEX WINDOW
+        # =====================================================
+
+        expected_window = []
+
+        gex_window = []
+
+        if expected_atm_index is not None:
+
+            start_index = max(
+                0,
+                expected_atm_index
+                - self.GEX_ATM_WINDOW_RADIUS,
+            )
+
+            end_index = min(
+                len(expected_strikes),
+                expected_atm_index
+                + self.GEX_ATM_WINDOW_RADIUS
+                + 1,
+            )
+
+            expected_window = (
+                expected_strikes[
+                    start_index:end_index
+                ]
+            )
+
+        gex_by_strike = {
+            float(row["strike"]): row
+            for row in gex_rows
+        }
+
+        for strike in expected_window:
+
+            row = gex_by_strike.get(
+                strike
+            )
+
+            if row is not None:
+
+                gex_window.append(row)
+
+        window_present_count = len(
+            gex_window
+        )
+
+        window_complete_pair_count = sum(
+            1
+            for row in gex_window
+            if (
+                row["call_gamma"] is not None
+                and row["put_gamma"] is not None
+            )
+        )
+
+        window_presence_pct = (
+            window_present_count
+            / len(expected_window)
+            * 100.0
+            if expected_window
+            else 0.0
+        )
+
+        window_pair_coverage_pct = (
+            window_complete_pair_count
+            / len(expected_window)
+            * 100.0
+            if expected_window
+            else 0.0
+        )
+
+        full_chain_usable = (
+            full_chain_coverage_pct
+            >= self.GEX_MIN_FULL_CHAIN_COVERAGE_PCT
+            and pair_coverage_pct
+            >= self.GEX_MIN_FULL_CHAIN_COVERAGE_PCT
+        )
+
+        atm_window_usable = (
+            window_presence_pct >= 100.0
+            and window_pair_coverage_pct
+            >= self.GEX_MIN_ATM_PAIR_COVERAGE_PCT
+        )
+
+        if expected_count == 0:
+
+            status = "UNAVAILABLE"
+
+        elif gex_strike_count == 0:
+
+            status = "EMPTY"
+
+        elif full_chain_usable:
+
+            status = "COMPLETE"
+
+        else:
+
+            status = "PARTIAL"
+
+        return {
+            "expiry_date": expiry_date,
+            "timestamp": timestamp,
+
+            "status": status,
+
+            "expected_strikes": (
+                expected_count
+            ),
+
+            "gex_strikes": (
+                gex_strike_count
+            ),
+
+            "full_chain_coverage_pct": (
+                full_chain_coverage_pct
+            ),
+
+            "complete_ce_pe_gex_strikes": (
+                complete_pair_count
+            ),
+
+            "gex_pair_coverage_pct": (
+                pair_coverage_pct
+            ),
+
+            "expected_atm_strike": (
+                expected_atm_strike
+            ),
+
+            "gex_atm_strike": (
+                gex_atm_strike
+            ),
+
+            "gex_atm_distance_points": (
+                gex_atm_distance_points
+            ),
+
+            "gex_atm_distance_pct": (
+                gex_atm_distance_pct
+            ),
+
+            "atm_window_radius": (
+                self.GEX_ATM_WINDOW_RADIUS
+            ),
+
+            "atm_window_expected_strikes": (
+                len(expected_window)
+            ),
+
+            "atm_window_present_strikes": (
+                window_present_count
+            ),
+
+            "atm_window_presence_pct": (
+                window_presence_pct
+            ),
+
+            "atm_window_complete_pairs": (
+                window_complete_pair_count
+            ),
+
+            "atm_window_pair_coverage_pct": (
+                window_pair_coverage_pct
+            ),
+
+            "gex_min_full_chain_coverage_pct": (
+                self.GEX_MIN_FULL_CHAIN_COVERAGE_PCT
+            ),
+
+            "gex_min_atm_pair_coverage_pct": (
+                self.GEX_MIN_ATM_PAIR_COVERAGE_PCT
+            ),
+
+            "full_chain_usable": (
+                full_chain_usable
+            ),
+
+            "atm_window_usable": (
+                atm_window_usable
+            ),
+        }
+
+    # =========================================================
+    # OBSERVED OPTION SNAPSHOT
+    # =========================================================
+
+    def _get_observed_option_snapshot(
+        self,
+        expiry_date: str,
+        timestamp: int,
+    ) -> list[dict]:
+
+        query = """
+        SELECT
+            i.id AS instrument_id,
+            i.symbol,
+            i.strike,
+            i.option_type,
+
+            c.timestamp,
+            c.close,
+            c.volume,
+            c.open_interest
+
+        FROM instruments i
+
+        INNER JOIN candles c
+            ON c.instrument_id = i.id
+
+        WHERE i.broker = 'FYERS'
+          AND i.underlying = ?
+          AND i.expiry_date = ?
+
+          AND i.option_type IN ('CE', 'PE')
+
+          AND c.resolution = ?
+          AND c.source = 'FYERS_FNO_HISTORY'
+          AND c.timestamp = ?
+
+        ORDER BY
+            i.strike,
+            i.option_type
+        """
+
+        with self._connect() as connection:
+
+            rows = connection.execute(
+                query,
+                (
+                    self.UNDERLYING,
+                    expiry_date,
+                    self.RESOLUTION,
+                    timestamp,
+                ),
+            ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    # =========================================================
+    # OPTION CHAIN QUALITY GUARD
+    # =========================================================
+
+    def _build_option_chain_quality(
+        self,
+        expiry_date: str,
+        timestamp: int,
+        spot_price: float | None,
+    ) -> dict:
+
+        expected = (
+            self._get_expected_option_universe(
+                expiry_date
+            )
+        )
+
+        observed = (
+            self._get_observed_option_snapshot(
+                expiry_date=expiry_date,
+                timestamp=timestamp,
+            )
+        )
+
+        expected_count = len(expected)
+
+        observed_symbols = {
+            str(row["symbol"])
+            for row in observed
+        }
+
+        observed_count = len(
+            observed_symbols
+        )
+
+        coverage_pct = (
+            observed_count
+            / expected_count
+            * 100.0
+            if expected_count
+            else 0.0
+        )
+
+        expected_ce = sum(
+            1
+            for row in expected
+            if row["option_type"] == "CE"
+        )
+
+        expected_pe = sum(
+            1
+            for row in expected
+            if row["option_type"] == "PE"
+        )
+
+        observed_ce = sum(
+            1
+            for symbol in observed_symbols
+            if next(
+                (
+                    row["option_type"]
+                    for row in observed
+                    if row["symbol"] == symbol
+                ),
+                None,
+            )
+            == "CE"
+        )
+
+        observed_pe = sum(
+            1
+            for symbol in observed_symbols
+            if next(
+                (
+                    row["option_type"]
+                    for row in observed
+                    if row["symbol"] == symbol
+                ),
+                None,
+            )
+            == "PE"
+        )
+
+        expected_strikes = sorted(
+            {
+                float(row["strike"])
+                for row in expected
+                if row["strike"] is not None
+            }
+        )
+
+        observed_strikes = sorted(
+            {
+                float(row["strike"])
+                for row in observed
+                if row["strike"] is not None
+            }
+        )
+
+        paired_observed = {}
+
+        for row in observed:
+
+            strike = row["strike"]
+
+            option_type = row[
+                "option_type"
+            ]
+
+            if strike is None:
+                continue
+
+            strike = float(strike)
+
+            if strike not in paired_observed:
+
+                paired_observed[strike] = {
+                    "CE": None,
+                    "PE": None,
+                }
+
+            paired_observed[strike][
+                option_type
+            ] = row
+
+        paired_strikes = sorted(
+            [
+                strike
+                for strike, pair
+                in paired_observed.items()
+                if (
+                    pair["CE"] is not None
+                    and pair["PE"] is not None
+                )
+            ]
+        )
+
+        # =====================================================
+        # EXPECTED ATM
+        # =====================================================
+
+        expected_atm_strike = None
+
+        expected_atm_index = None
+
+        if (
+            spot_price is not None
+            and expected_strikes
+        ):
+
+            expected_atm_index = min(
+                range(
+                    len(
+                        expected_strikes
+                    )
+                ),
+                key=lambda index: abs(
+                    expected_strikes[index]
+                    - spot_price
+                ),
+            )
+
+            expected_atm_strike = (
+                expected_strikes[
+                    expected_atm_index
+                ]
+            )
+
+        # =====================================================
+        # OBSERVED ATM
+        # =====================================================
+
+        observed_atm_strike = None
+
+        observed_atm_distance_points = None
+
+        observed_atm_distance_pct = None
+
+        observed_atm_call_price = None
+
+        observed_atm_put_price = None
+
+        if (
+            spot_price is not None
+            and paired_strikes
+        ):
+
+            observed_atm_strike = min(
+                paired_strikes,
+                key=lambda strike: abs(
+                    strike
+                    - spot_price
+                ),
+            )
+
+            observed_atm_distance_points = (
+                spot_price
+                - observed_atm_strike
+            )
+
+            observed_atm_distance_pct = (
+                abs(
+                    observed_atm_distance_points
+                )
+                / abs(spot_price)
+                * 100.0
+                if spot_price != 0
+                else None
+            )
+
+            atm_pair = paired_observed[
+                observed_atm_strike
+            ]
+
+            if atm_pair["CE"] is not None:
+
+                observed_atm_call_price = (
+                    atm_pair["CE"]["close"]
+                )
+
+            if atm_pair["PE"] is not None:
+
+                observed_atm_put_price = (
+                    atm_pair["PE"]["close"]
+                )
+
+        spot_inside_observed_range = False
+
+        if (
+            spot_price is not None
+            and observed_strikes
+        ):
+
+            spot_inside_observed_range = (
+                min(observed_strikes)
+                <= spot_price
+                <= max(observed_strikes)
+            )
+
+        atm_usable = (
+            observed_atm_strike is not None
+            and observed_atm_distance_pct
+            is not None
+            and observed_atm_distance_pct
+            <= self.ATM_MAX_DISTANCE_PCT
+        )
+
+        # =====================================================
+        # PCR / ATM WINDOW QUALITY
+        # =====================================================
+
+        expected_atm_window = []
+
+        pcr_window_pair_count = 0
+
+        pcr_window_oi_pair_count = 0
+
+        if expected_atm_index is not None:
+
+            start_index = max(
+                0,
+                expected_atm_index
+                - self.PCR_ATM_WINDOW_RADIUS,
+            )
+
+            end_index = min(
+                len(expected_strikes),
+                expected_atm_index
+                + self.PCR_ATM_WINDOW_RADIUS
+                + 1,
+            )
+
+            expected_atm_window = (
+                expected_strikes[
+                    start_index:end_index
+                ]
+            )
+
+            for strike in expected_atm_window:
+
+                pair = paired_observed.get(
+                    strike
+                )
+
+                if pair is None:
+                    continue
+
+                if (
+                    pair["CE"] is not None
+                    and pair["PE"] is not None
+                ):
+
+                    pcr_window_pair_count += 1
+
+                    ce_oi = pair["CE"].get(
+                        "open_interest"
+                    )
+
+                    pe_oi = pair["PE"].get(
+                        "open_interest"
+                    )
+
+                    if (
+                        ce_oi is not None
+                        and pe_oi is not None
+                    ):
+
+                        pcr_window_oi_pair_count += 1
+
+        pcr_window_pair_coverage_pct = (
+            pcr_window_pair_count
+            / len(expected_atm_window)
+            * 100.0
+            if expected_atm_window
+            else 0.0
+        )
+
+        pcr_window_oi_coverage_pct = (
+            pcr_window_oi_pair_count
+            / len(expected_atm_window)
+            * 100.0
+            if expected_atm_window
+            else 0.0
+        )
+
+        pcr_oi_usable = (
+            coverage_pct
+            >= self.PCR_MIN_CHAIN_COVERAGE_PCT
+            and pcr_window_oi_coverage_pct
+            >= self.PCR_MIN_PAIRED_COVERAGE_PCT
+            and pcr_window_oi_coverage_pct
+            == pcr_window_oi_coverage_pct
+        )
+
+        if (
+            expected_count == 0
+        ):
+
+            status = "UNAVAILABLE"
+
+        elif observed_count == 0:
+
+            status = "EMPTY"
+
+        elif observed_count < expected_count:
+
+            status = "PARTIAL"
+
+        else:
+
+            status = "COMPLETE"
+
+        return {
+            "expiry_date": expiry_date,
+            "timestamp": timestamp,
+
+            "status": status,
+
+            "expected_contracts": (
+                expected_count
+            ),
+
+            "observed_contracts": (
+                observed_count
+            ),
+
+            "coverage_pct": coverage_pct,
+
+            "expected_ce_contracts": (
+                expected_ce
+            ),
+
+            "expected_pe_contracts": (
+                expected_pe
+            ),
+
+            "observed_ce_contracts": (
+                observed_ce
+            ),
+
+            "observed_pe_contracts": (
+                observed_pe
+            ),
+
+            "expected_strikes": (
+                len(expected_strikes)
+            ),
+
+            "observed_strikes": (
+                len(observed_strikes)
+            ),
+
+            "paired_observed_strikes": (
+                len(paired_strikes)
+            ),
+
+            "expected_min_strike": (
+                min(expected_strikes)
+                if expected_strikes
+                else None
+            ),
+
+            "expected_max_strike": (
+                max(expected_strikes)
+                if expected_strikes
+                else None
+            ),
+
+            "observed_min_strike": (
+                min(observed_strikes)
+                if observed_strikes
+                else None
+            ),
+
+            "observed_max_strike": (
+                max(observed_strikes)
+                if observed_strikes
+                else None
+            ),
+
+            "spot_price": spot_price,
+
+            "spot_inside_observed_range": (
+                spot_inside_observed_range
+            ),
+
+            "expected_atm_strike": (
+                expected_atm_strike
+            ),
+
+            "observed_atm_strike": (
+                observed_atm_strike
+            ),
+
+            "observed_atm_distance_points": (
+                observed_atm_distance_points
+            ),
+
+            "observed_atm_distance_pct": (
+                observed_atm_distance_pct
+            ),
+
+            "observed_atm_call_price": (
+                observed_atm_call_price
+            ),
+
+            "observed_atm_put_price": (
+                observed_atm_put_price
+            ),
+
+            "atm_max_distance_pct": (
+                self.ATM_MAX_DISTANCE_PCT
+            ),
+
+            "atm_usable": atm_usable,
+
+            "pcr_window_radius": (
+                self.PCR_ATM_WINDOW_RADIUS
+            ),
+
+            "pcr_window_expected_strikes": (
+                len(expected_atm_window)
+            ),
+
+            "pcr_window_pair_count": (
+                pcr_window_pair_count
+            ),
+
+            "pcr_window_oi_pair_count": (
+                pcr_window_oi_pair_count
+            ),
+
+            "pcr_window_pair_coverage_pct": (
+                pcr_window_pair_coverage_pct
+            ),
+
+            "pcr_window_oi_coverage_pct": (
+                pcr_window_oi_coverage_pct
+            ),
+
+            "pcr_min_paired_coverage_pct": (
+                self.PCR_MIN_PAIRED_COVERAGE_PCT
+            ),
+
+            "pcr_min_chain_coverage_pct": (
+                self.PCR_MIN_CHAIN_COVERAGE_PCT
+            ),
+
+            "pcr_scope": "FULL_CHAIN",
+
+            "pcr_oi_usable": pcr_oi_usable,
+        }
+
+    # =========================================================
+    # GEX DATA
+    # =========================================================
+
+    def _get_latest_gex_rows(
+        self,
+        expiry_date: str,
+    ) -> list[dict]:
+
+        with self._connect() as connection:
+
+            latest = connection.execute(
+                """
+                SELECT MAX(timestamp) AS timestamp
+                FROM gex_snapshots
+                WHERE underlying = ?
+                  AND expiry_date = ?
+                  AND resolution = ?
+                  AND gex_convention = ?
+                  AND calculation_version = ?
+                """,
+                (
+                    self.UNDERLYING,
+                    expiry_date,
+                    self.RESOLUTION,
+                    self.GEX_CONVENTION,
+                    self.GEX_VERSION,
+                ),
+            ).fetchone()
+
+            if (
+                latest is None
+                or latest["timestamp"] is None
+            ):
+                return []
+
+            timestamp = int(
+                latest["timestamp"]
+            )
+
+            rows = connection.execute(
+                """
+                SELECT
+                    timestamp,
+                    strike,
+                    spot_price,
+                    call_oi,
+                    put_oi,
+                    call_gamma,
+                    put_gamma,
+                    call_gex,
+                    put_gex,
+                    gross_gex,
+                    net_gex
+
+                FROM gex_snapshots
+
+                WHERE underlying = ?
+                  AND expiry_date = ?
+                  AND resolution = ?
+                  AND gex_convention = ?
+                  AND calculation_version = ?
+                  AND timestamp = ?
+
+                ORDER BY strike
+                """,
+                (
+                    self.UNDERLYING,
+                    expiry_date,
+                    self.RESOLUTION,
+                    self.GEX_CONVENTION,
+                    self.GEX_VERSION,
+                    timestamp,
+                ),
+            ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    # =========================================================
+    # GEX SUMMARY
+    # =========================================================
+
+    def _build_gex_summary(
+        self,
+        rows: list[dict],
+    ) -> dict:
+
+        if not rows:
+
+            return {
+                "available": False,
+                "timestamp": None,
+                "strike_count": 0,
+                "complete_ce_pe_strikes": 0,
+                "partial_strikes": 0,
+                "spot_price": None,
+                "atm_strike": None,
+                "total_call_gex": 0.0,
+                "total_put_gex": 0.0,
+                "total_gross_gex": 0.0,
+                "total_net_gex": 0.0,
+                "gex_dominance_pct": None,
+                "net_gex_state": "UNAVAILABLE",
+                "highest_positive_strike": None,
+                "highest_positive_net_gex": None,
+                "most_negative_strike": None,
+                "most_negative_net_gex": None,
+            }
+
+        timestamp = int(
+            rows[0]["timestamp"]
+        )
+
+        spot_price = (
+            float(rows[0]["spot_price"])
+            if rows[0]["spot_price"] is not None
+            else None
+        )
+
+        total_call_gex = sum(
+            float(row["call_gex"] or 0.0)
+            for row in rows
+        )
+
+        total_put_gex = sum(
+            float(row["put_gex"] or 0.0)
+            for row in rows
+        )
+
+        total_gross_gex = sum(
+            float(row["gross_gex"] or 0.0)
+            for row in rows
+        )
+
+        total_net_gex = sum(
+            float(row["net_gex"] or 0.0)
+            for row in rows
+        )
+
+        complete_ce_pe = sum(
+            1
+            for row in rows
+            if (
+                row["call_gamma"] is not None
+                and row["put_gamma"] is not None
+            )
+        )
+
+        partial_strikes = (
+            len(rows)
+            - complete_ce_pe
+        )
+
+        atm_strike = None
+
+        if spot_price is not None:
+
+            atm_strike = float(
+                min(
+                    rows,
+                    key=lambda row: abs(
+                        float(row["strike"])
+                        - spot_price
+                    ),
+                )["strike"]
+            )
+
+        positive_rows = [
+            row
+            for row in rows
+            if float(row["net_gex"] or 0.0) > 0
+        ]
+
+        negative_rows = [
+            row
+            for row in rows
+            if float(row["net_gex"] or 0.0) < 0
+        ]
+
+        highest_positive = (
+            max(
+                positive_rows,
+                key=lambda row: float(
+                    row["net_gex"]
+                ),
+            )
+            if positive_rows
+            else None
+        )
+
+        most_negative = (
+            min(
+                negative_rows,
+                key=lambda row: float(
+                    row["net_gex"]
+                ),
+            )
+            if negative_rows
+            else None
+        )
+
+        if total_net_gex > 0:
+
+            net_state = "POSITIVE_NET_GEX"
+
+        elif total_net_gex < 0:
+
+            net_state = "NEGATIVE_NET_GEX"
+
+        else:
+
+            net_state = "ZERO_NET_GEX"
+
+        dominance_pct = None
+
+        if total_gross_gex > 0:
+
+            dominance_pct = (
+                abs(total_net_gex)
+                / total_gross_gex
+            ) * 100.0
+
+        return {
+            "available": True,
+            "timestamp": timestamp,
+            "strike_count": len(rows),
+            "complete_ce_pe_strikes": (
+                complete_ce_pe
+            ),
+            "partial_strikes": (
+                partial_strikes
+            ),
+            "gex_pair_coverage_pct": (
+                complete_ce_pe
+                / len(rows)
+                * 100.0
+                if rows
+                else 0.0
+            ),
+            "spot_price": spot_price,
+            "atm_strike": atm_strike,
+            "total_call_gex": total_call_gex,
+            "total_put_gex": total_put_gex,
+            "total_gross_gex": total_gross_gex,
+            "total_net_gex": total_net_gex,
+            "gex_dominance_pct": dominance_pct,
+            "net_gex_state": net_state,
+            "highest_positive_strike": (
+                float(
+                    highest_positive["strike"]
+                )
+                if highest_positive
+                else None
+            ),
+            "highest_positive_net_gex": (
+                float(
+                    highest_positive["net_gex"]
+                )
+                if highest_positive
+                else None
+            ),
+            "most_negative_strike": (
+                float(
+                    most_negative["strike"]
+                )
+                if most_negative
+                else None
+            ),
+            "most_negative_net_gex": (
+                float(
+                    most_negative["net_gex"]
+                )
+                if most_negative
+                else None
+            ),
+        }
+
+    # =========================================================
+    # BUILD
+    # =========================================================
+
+    def build(
+        self,
+        expiry_date: str,
+    ) -> dict:
+
+        context_rows = (
+            self._get_market_context_rows(
+                limit=2
+            )
+        )
+
+        if not context_rows:
+
+            raise ValueError(
+                "No market_context rows found."
+            )
+
+        current = context_rows[0]
+
+        previous = (
+            context_rows[1]
+            if len(context_rows) > 1
+            else None
+        )
+
+        current_timestamp = int(
+            current["timestamp"]
+        )
+
+        spot = (
+            float(current["spot_price"])
+            if current["spot_price"] is not None
+            else None
+        )
+
+        previous_spot = (
+            float(previous["spot_price"])
+            if previous is not None
+            and previous["spot_price"] is not None
+            else None
+        )
+
+        futures = (
+            float(current["futures_price"])
+            if current["futures_price"] is not None
+            else None
+        )
+
+        basis = None
+        basis_pct = None
+
+        if (
+            spot is not None
+            and futures is not None
+        ):
+
+            basis = (
+                futures
+                - spot
+            )
+
+            basis_pct = self._safe_pct(
+                basis,
+                spot,
+            )
+
+        spot_change = None
+
+        if (
+            spot is not None
+            and previous_spot is not None
+        ):
+
+            spot_change = (
+                spot
+                - previous_spot
+            )
+
+        vix = (
+            float(current["india_vix"])
+            if current["india_vix"] is not None
+            else None
+        )
+
+        previous_vix = (
+            float(previous["india_vix"])
+            if previous is not None
+            and previous["india_vix"] is not None
+            else None
+        )
+
+        call_oi_raw = (
+            int(current["total_call_oi"])
+            if current["total_call_oi"] is not None
+            else None
+        )
+
+        put_oi_raw = (
+            int(current["total_put_oi"])
+            if current["total_put_oi"] is not None
+            else None
+        )
+
+        call_oi_change = (
+            int(current["call_oi_change"])
+            if current["call_oi_change"] is not None
+            else None
+        )
+
+        put_oi_change = (
+            int(current["put_oi_change"])
+            if current["put_oi_change"] is not None
+            else None
+        )
+
+        pcr_raw = (
+            float(current["pcr_oi"])
+            if current["pcr_oi"] is not None
+            else None
+        )
+
+        atm_raw = (
+            float(current["atm_strike"])
+            if current["atm_strike"] is not None
+            else None
+        )
+
+        atm_call_price_raw = (
+            float(current["atm_call_price"])
+            if current["atm_call_price"] is not None
+            else None
+        )
+
+        atm_put_price_raw = (
+            float(current["atm_put_price"])
+            if current["atm_put_price"] is not None
+            else None
+        )
+
+        atm_call_iv = (
+            float(current["atm_call_iv"])
+            if current["atm_call_iv"] is not None
+            else None
+        )
+
+        atm_put_iv = (
+            float(current["atm_put_iv"])
+            if current["atm_put_iv"] is not None
+            else None
+        )
+
+        # =====================================================
+        # OPTION CHAIN QUALITY
+        # =====================================================
+
+        option_chain_quality = (
+            self._build_option_chain_quality(
+                expiry_date=expiry_date,
+                timestamp=current_timestamp,
+                spot_price=spot,
+            )
+        )
+
+        atm_usable = option_chain_quality[
+            "atm_usable"
+        ]
+
+        pcr_usable = option_chain_quality[
+            "pcr_oi_usable"
+        ]
+
+        # =====================================================
+        # GEX
+        # =====================================================
+
+        gex_rows = (
+            self._get_latest_gex_rows(
+                expiry_date
+            )
+        )
+
+        gex = self._build_gex_summary(
+            gex_rows
+        )
+
+        gex_quality = (
+            self._build_gex_quality(
+                expiry_date=expiry_date,
+                timestamp=current_timestamp,
+                spot_price=spot,
+                gex_rows=gex_rows,
+            )
+        )
+
+        gex_timestamp = (
+            int(gex["timestamp"])
+            if gex["timestamp"] is not None
+            else None
+        )
+
+        timestamps_aligned = (
+            gex_timestamp == current_timestamp
+            if gex_timestamp is not None
+            else False
+        )
+
+        # =====================================================
+        # MARKET STATE SUMMARY
+        # =====================================================
+
+        market_state = (
+            self._build_market_state_summary(
+                spot_direction=self._direction(
+                    spot,
+                    previous_spot,
+                ),
+                basis=basis,
+                vix_direction=self._direction(
+                    vix,
+                    previous_vix,
+                ),
+                option_chain_status=(
+                    option_chain_quality[
+                        "status"
+                    ]
+                ),
+                atm_data_usable=atm_usable,
+                pcr_oi_usable=pcr_usable,
+                gex_full_chain_usable=(
+                    gex_quality[
+                        "full_chain_usable"
+                    ]
+                ),
+                gex_atm_window_usable=(
+                    gex_quality[
+                        "atm_window_usable"
+                    ]
+                ),
+                market_context_available=True,
+                gex_available=gex[
+                    "available"
+                ],
+                timestamps_aligned=(
+                    timestamps_aligned
+                ),
+            )
+        )
+
+        # =====================================================
+        # RETURN CONTEXT
+        # =====================================================
+
+        return {
+            "underlying": self.UNDERLYING,
+            "expiry_date": expiry_date,
+            "resolution": self.RESOLUTION,
+
+            "timestamp": current_timestamp,
+
+            "market_state": market_state,
+
+            "spot": {
+                "price": spot,
+                "change": spot_change,
+                "direction": self._direction(
+                    spot,
+                    previous_spot,
+                ),
+            },
+
+            "futures": {
+                "price": futures,
+                "open_interest": (
+                    current["futures_oi"]
+                ),
+                "open_interest_change": (
+                    current[
+                        "futures_oi_change"
+                    ]
+                ),
+                "basis_points": basis,
+                "basis_pct": basis_pct,
+            },
+
+            "india_vix": {
+                "value": vix,
+                "change": (
+                    current[
+                        "india_vix_change"
+                    ]
+                ),
+                "change_pct": (
+                    current[
+                        "india_vix_change_pct"
+                    ]
+                ),
+                "direction": self._direction(
+                    vix,
+                    previous_vix,
+                ),
+            },
+
+            "options": {
+                # Raw market_context values are retained
+                # for auditing.
+                "raw_call_oi": call_oi_raw,
+                "raw_put_oi": put_oi_raw,
+                "raw_pcr_oi": pcr_raw,
+                "raw_atm_strike": atm_raw,
+                "raw_atm_call_price": (
+                    atm_call_price_raw
+                ),
+                "raw_atm_put_price": (
+                    atm_put_price_raw
+                ),
+
+                # Only expose these as usable values when
+                # the quality guard approves them.
+                "call_oi": (
+                    call_oi_raw
+                    if pcr_usable
+                    else None
+                ),
+                "put_oi": (
+                    put_oi_raw
+                    if pcr_usable
+                    else None
+                ),
+                "call_oi_change": (
+                    call_oi_change
+                    if pcr_usable
+                    else None
+                ),
+                "put_oi_change": (
+                    put_oi_change
+                    if pcr_usable
+                    else None
+                ),
+                "pcr_oi": (
+                    pcr_raw
+                    if pcr_usable
+                    else None
+                ),
+                "pcr_oi_change": (
+                    current[
+                        "pcr_oi_change"
+                    ]
+                    if pcr_usable
+                    else None
+                ),
+
+                "atm_strike": (
+                    option_chain_quality[
+                        "observed_atm_strike"
+                    ]
+                    if atm_usable
+                    else None
+                ),
+                "atm_call_price": (
+                    option_chain_quality[
+                        "observed_atm_call_price"
+                    ]
+                    if atm_usable
+                    else None
+                ),
+                "atm_put_price": (
+                    option_chain_quality[
+                        "observed_atm_put_price"
+                    ]
+                    if atm_usable
+                    else None
+                ),
+                "atm_call_iv": (
+                    atm_call_iv
+                    if (
+                        atm_usable
+                        and atm_raw
+                        == option_chain_quality[
+                            "observed_atm_strike"
+                        ]
+                    )
+                    else None
+                ),
+                "atm_put_iv": (
+                    atm_put_iv
+                    if (
+                        atm_usable
+                        and atm_raw
+                        == option_chain_quality[
+                            "observed_atm_strike"
+                        ]
+                    )
+                    else None
+                ),
+
+                "atm_data_usable": atm_usable,
+                "pcr_oi_usable": pcr_usable,
+            },
+
+            "option_chain_quality": (
+                option_chain_quality
+            ),
+
+            "gex": gex,
+
+            "gex_quality": (
+                gex_quality
+            ),
+
+            "synchronization": {
+                "market_context_timestamp": (
+                    current_timestamp
+                ),
+                "gex_timestamp": gex_timestamp,
+                "timestamps_aligned": (
+                    timestamps_aligned
+                ),
+                "gex_strike_count": (
+                    gex["strike_count"]
+                ),
+                "gex_pair_coverage_pct": (
+                    gex.get(
+                        "gex_pair_coverage_pct"
+                    )
+                ),
+            },
+
+            "data_quality": {
+                "market_context_available": True,
+                "option_chain_status": (
+                    option_chain_quality[
+                        "status"
+                    ]
+                ),
+                "atm_data_usable": atm_usable,
+                "pcr_oi_usable": pcr_usable,
+                "gex_available": (
+                    gex["available"]
+                ),
+                "gex_status": (
+                    gex_quality["status"]
+                ),
+                "gex_full_chain_usable": (
+                    gex_quality[
+                        "full_chain_usable"
+                    ]
+                ),
+                "gex_atm_window_usable": (
+                    gex_quality[
+                        "atm_window_usable"
+                    ]
+                ),
+                "timestamps_aligned": (
+                    timestamps_aligned
+                ),
+                "market_context_version": (
+                    self.MARKET_CONTEXT_VERSION
+                ),
+                "gex_version": (
+                    self.GEX_VERSION
+                ),
+            },
+        }
+
+    # =========================================================
+    # SAMPLE
+    # =========================================================
+
+    def run_sample(self) -> dict:
+
+        return self.build(
+            expiry_date="2024-11-28"
+        )
+
+
+# =============================================================
+# CLI
+# =============================================================
+
+def main() -> None:
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Kunal Quant - "
+            "Market Regime Context V1.1"
+        )
+    )
+
+    parser.add_argument(
+        "--sample",
+        action="store_true",
+        help="Run the 2024-11-28 sample.",
+    )
+
+    parser.add_argument(
+        "--expiry",
+        type=str,
+        default=None,
+        help="Option expiry YYYY-MM-DD.",
+    )
+
+    args = parser.parse_args()
+
+    engine = MarketRegimeContext()
+
+    if args.sample:
+
+        result = engine.run_sample()
+
+    else:
+
+        if not args.expiry:
+
+            raise SystemExit(
+                "--expiry is required."
+            )
+
+        result = engine.build(
+            expiry_date=args.expiry
+        )
+
+    print()
+    print("=" * 75)
+    print(
+        "KUNAL QUANT - "
+        "MARKET REGIME CONTEXT V1.1"
+    )
+    print("=" * 75)
+
+    print(
+        json.dumps(
+            result,
+            indent=2,
+            default=str,
+        )
+    )
+
+    print()
+    print("=" * 75)
+
+
+if __name__ == "__main__":
+    main()

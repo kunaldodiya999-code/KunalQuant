@@ -139,7 +139,15 @@ class GEXProfileEngine:
                     call_gex,
                     put_gex,
                     gross_gex,
-                    net_gex
+                    net_gex,
+                    gex_quality,
+                    expiry_state,
+                    dte_seconds,
+                    dte_minutes,
+                    max_gamma,
+                    gamma_1pct,
+                    extreme_gamma,
+                    quality_flags
                 FROM gex_snapshots
                 WHERE underlying = ?
                   AND expiry_date = ?
@@ -271,6 +279,18 @@ class GEXProfileEngine:
             for row in atm_window
         )
 
+        quality_summary = (
+            self._build_quality_summary(
+                profile
+            )
+        )
+
+        zero_crossings = (
+            self._find_zero_crossings(
+                profile
+            )
+        )
+
         return {
             "expiry_date": expiry_date,
             "timestamp": latest_timestamp,
@@ -306,6 +326,14 @@ class GEXProfileEngine:
 
             "profile": profile,
 
+            "quality_summary": (
+                quality_summary
+            ),
+
+            "zero_crossings": (
+                zero_crossings
+            ),
+
             "top_positive_net_gex": [
                 {
                     "strike": row["strike"],
@@ -322,6 +350,234 @@ class GEXProfileEngine:
                 for row in negative[:top_n]
             ],
         }
+
+    # =========================================================
+    # GEX QUALITY SUMMARY
+    # =========================================================
+
+    @staticmethod
+    def _build_quality_summary(
+        profile: list[dict],
+    ) -> dict:
+
+        quality_counts: dict[str, int] = {}
+
+        extreme_gamma_count = 0
+        near_expiry_count = 0
+        expiry_day_count = 0
+
+        for row in profile:
+
+            quality = str(
+                row.get(
+                    "gex_quality",
+                    "UNKNOWN",
+                )
+            )
+
+            quality_counts[quality] = (
+                quality_counts.get(
+                    quality,
+                    0,
+                )
+                + 1
+            )
+
+            if int(
+                row.get(
+                    "extreme_gamma",
+                    0,
+                )
+                or 0
+            ) == 1:
+
+                extreme_gamma_count += 1
+
+            if (
+                row.get("expiry_state")
+                == "NEAR_EXPIRY"
+            ):
+
+                near_expiry_count += 1
+
+            flags = row.get(
+                "quality_flags",
+                [],
+            )
+
+            if isinstance(
+                flags,
+                str,
+            ):
+
+                try:
+                    flags = json.loads(
+                        flags
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+
+                    flags = []
+
+            if (
+                "EXPIRY_DAY"
+                in flags
+            ):
+
+                expiry_day_count += 1
+
+        return {
+            "quality_counts": quality_counts,
+
+            "extreme_gamma_count": (
+                extreme_gamma_count
+            ),
+
+            "near_expiry_count": (
+                near_expiry_count
+            ),
+
+            "expiry_day_count": (
+                expiry_day_count
+            ),
+
+            "quality_aware": True,
+        }
+
+    # =========================================================
+    # GEX ZERO CROSSINGS
+    # =========================================================
+
+    @staticmethod
+    def _find_zero_crossings(
+        profile: list[dict],
+    ) -> list[dict]:
+
+        crossings = []
+
+        ordered = sorted(
+            profile,
+            key=lambda row: float(
+                row["strike"]
+            ),
+        )
+
+        for index in range(
+            len(ordered) - 1
+        ):
+
+            left = ordered[index]
+
+            right = ordered[index + 1]
+
+            left_gex = float(
+                left["net_gex"]
+            )
+
+            right_gex = float(
+                right["net_gex"]
+            )
+
+            if left_gex == 0.0:
+
+                crossings.append(
+                    {
+                        "type": "EXACT_ZERO",
+                        "strike": float(
+                            left["strike"]
+                        ),
+                        "net_gex": 0.0,
+                    }
+                )
+
+                continue
+
+            if right_gex == 0.0:
+
+                crossings.append(
+                    {
+                        "type": "EXACT_ZERO",
+                        "strike": float(
+                            right["strike"]
+                        ),
+                        "net_gex": 0.0,
+                    }
+                )
+
+                continue
+
+            if (
+                left_gex > 0
+                and right_gex < 0
+            ) or (
+                left_gex < 0
+                and right_gex > 0
+            ):
+
+                left_strike = float(
+                    left["strike"]
+                )
+
+                right_strike = float(
+                    right["strike"]
+                )
+
+                zero_strike = (
+                    left_strike
+                    + (
+                        -left_gex
+                        / (
+                            right_gex
+                            - left_gex
+                        )
+                    )
+                    * (
+                        right_strike
+                        - left_strike
+                    )
+                )
+
+                crossings.append(
+                    {
+                        "type": "SIGN_CHANGE",
+
+                        "lower_strike": float(
+                            left["strike"]
+                        ),
+
+                        "upper_strike": float(
+                            right["strike"]
+                        ),
+
+                        "estimated_zero_strike": (
+                            zero_strike
+                        ),
+
+                        "lower_net_gex": (
+                            left_gex
+                        ),
+
+                        "upper_net_gex": (
+                            right_gex
+                        ),
+
+                        "lower_quality": (
+                            left.get(
+                                "gex_quality"
+                            )
+                        ),
+
+                        "upper_quality": (
+                            right.get(
+                                "gex_quality"
+                            )
+                        ),
+                    }
+                )
+
+        return crossings
 
     # =========================================================
     # LATEST SUMMARY
@@ -566,6 +822,18 @@ class GEXProfileEngine:
 
             "calculation_version": (
                 self.CALCULATION_VERSION
+            ),
+
+            "quality_summary": (
+                profile[
+                    "quality_summary"
+                ]
+            ),
+
+            "zero_crossings": (
+                profile[
+                    "zero_crossings"
+                ]
             ),
 
             "spot_price": profile["spot_price"],

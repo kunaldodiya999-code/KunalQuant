@@ -1332,6 +1332,327 @@ class MarketRegimeContext:
         ]
 
     # =========================================================
+    # PREVIOUS GEX SNAPSHOT
+    # =========================================================
+
+    def _get_previous_gex_rows(
+        self,
+        expiry_date: str,
+        current_timestamp: int,
+    ) -> list[dict]:
+
+        with self._connect() as connection:
+
+            current_session = connection.execute(
+                """
+                SELECT date(
+                    ?,
+                    'unixepoch',
+                    '+5 hours',
+                    '+30 minutes'
+                ) AS session_date
+                """,
+                (current_timestamp,),
+            ).fetchone()
+
+            if (
+                current_session is None
+                or current_session["session_date"] is None
+            ):
+                return []
+
+            session_date = str(
+                current_session["session_date"]
+            )
+
+            previous = connection.execute(
+                """
+                SELECT timestamp
+                FROM gex_snapshots
+
+                WHERE underlying = ?
+                  AND expiry_date = ?
+                  AND resolution = ?
+                  AND gex_convention = ?
+                  AND calculation_version = ?
+                  AND timestamp < ?
+
+                  AND date(
+                      timestamp,
+                      'unixepoch',
+                      '+5 hours',
+                      '+30 minutes'
+                  ) = ?
+
+                ORDER BY timestamp DESC
+
+                LIMIT 1
+                """,
+                (
+                    self.UNDERLYING,
+                    expiry_date,
+                    self.RESOLUTION,
+                    self.GEX_CONVENTION,
+                    self.GEX_VERSION,
+                    current_timestamp,
+                    session_date,
+                ),
+            ).fetchone()
+
+            if (
+                previous is None
+                or previous["timestamp"] is None
+            ):
+                return []
+
+            previous_timestamp = int(
+                previous["timestamp"]
+            )
+
+            rows = connection.execute(
+                """
+                SELECT
+                    timestamp,
+                    strike,
+                    spot_price,
+                    call_oi,
+                    put_oi,
+                    call_gamma,
+                    put_gamma,
+                    call_gex,
+                    put_gex,
+                    gross_gex,
+                    net_gex
+
+                FROM gex_snapshots
+
+                WHERE underlying = ?
+                  AND expiry_date = ?
+                  AND resolution = ?
+                  AND gex_convention = ?
+                  AND calculation_version = ?
+                  AND timestamp = ?
+
+                ORDER BY strike
+                """,
+                (
+                    self.UNDERLYING,
+                    expiry_date,
+                    self.RESOLUTION,
+                    self.GEX_CONVENTION,
+                    self.GEX_VERSION,
+                    previous_timestamp,
+                ),
+            ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+    # =========================================================
+    # GEX TIME EVOLUTION
+    # =========================================================
+
+    @staticmethod
+    def _build_gex_evolution(
+        current: dict,
+        previous: dict | None,
+    ) -> dict:
+
+        if (
+            not current.get("available")
+            or previous is None
+            or not previous.get("available")
+        ):
+
+            return {
+                "available": False,
+                "current_timestamp": (
+                    current.get("timestamp")
+                ),
+                "previous_timestamp": (
+                    previous.get("timestamp")
+                    if previous is not None
+                    else None
+                ),
+                "timestamp_gap_seconds": None,
+                "net_gex_change": None,
+                "net_gex_change_pct": None,
+                "gross_gex_change": None,
+                "gross_gex_change_pct": None,
+                "call_gex_change": None,
+                "call_gex_change_pct": None,
+                "put_gex_change": None,
+                "put_gex_change_pct": None,
+                "net_gex_direction": "UNAVAILABLE",
+            }
+
+        current_timestamp = int(
+            current["timestamp"]
+        )
+
+        previous_timestamp = int(
+            previous["timestamp"]
+        )
+
+        timestamp_gap = (
+            current_timestamp
+            - previous_timestamp
+        )
+
+        current_net = float(
+            current["total_net_gex"]
+        )
+
+        previous_net = float(
+            previous["total_net_gex"]
+        )
+
+        current_gross = float(
+            current["total_gross_gex"]
+        )
+
+        previous_gross = float(
+            previous["total_gross_gex"]
+        )
+
+        current_call = float(
+            current["total_call_gex"]
+        )
+
+        previous_call = float(
+            previous["total_call_gex"]
+        )
+
+        current_put = float(
+            current["total_put_gex"]
+        )
+
+        previous_put = float(
+            previous["total_put_gex"]
+        )
+
+        net_change = (
+            current_net
+            - previous_net
+        )
+
+        gross_change = (
+            current_gross
+            - previous_gross
+        )
+
+        call_change = (
+            current_call
+            - previous_call
+        )
+
+        put_change = (
+            current_put
+            - previous_put
+        )
+
+        def pct_change(
+            current_value: float,
+            previous_value: float,
+        ) -> float | None:
+
+            if previous_value == 0:
+                return None
+
+            return (
+                (
+                    current_value
+                    - previous_value
+                )
+                / abs(previous_value)
+            ) * 100.0
+
+        if net_change > 0:
+            net_direction = "RISING"
+        elif net_change < 0:
+            net_direction = "FALLING"
+        else:
+            net_direction = "FLAT"
+
+        return {
+            "available": True,
+
+            "current_timestamp": (
+                current_timestamp
+            ),
+
+            "previous_timestamp": (
+                previous_timestamp
+            ),
+
+            "timestamp_gap_seconds": (
+                timestamp_gap
+            ),
+
+            "net_gex_change": (
+                net_change
+            ),
+
+            "net_gex_change_pct": (
+                pct_change(
+                    current_net,
+                    previous_net,
+                )
+            ),
+
+            "gross_gex_change": (
+                gross_change
+            ),
+
+            "gross_gex_change_pct": (
+                pct_change(
+                    current_gross,
+                    previous_gross,
+                )
+            ),
+
+            "call_gex_change": (
+                call_change
+            ),
+
+            "call_gex_change_pct": (
+                pct_change(
+                    current_call,
+                    previous_call,
+                )
+            ),
+
+            "put_gex_change": (
+                put_change
+            ),
+
+            "put_gex_change_pct": (
+                pct_change(
+                    current_put,
+                    previous_put,
+                )
+            ),
+
+            "current_net_gex": current_net,
+
+            "previous_net_gex": previous_net,
+
+            "current_gross_gex": (
+                current_gross
+            ),
+
+            "previous_gross_gex": (
+                previous_gross
+            ),
+
+            "net_gex_direction": (
+                net_direction
+            ),
+        }
+
+    # =========================================================
     # GEX SUMMARY
     # =========================================================
 
@@ -1728,6 +2049,28 @@ class MarketRegimeContext:
             )
         )
 
+        previous_gex_rows = (
+            self._get_previous_gex_rows(
+                expiry_date=expiry_date,
+                current_timestamp=(
+                    current_timestamp
+                ),
+            )
+        )
+
+        previous_gex = (
+            self._build_gex_summary(
+                previous_gex_rows
+            )
+        )
+
+        gex_evolution = (
+            self._build_gex_evolution(
+                current=gex,
+                previous=previous_gex,
+            )
+        )
+
         gex_timestamp = (
             int(gex["timestamp"])
             if gex["timestamp"] is not None
@@ -1939,6 +2282,10 @@ class MarketRegimeContext:
 
             "gex": gex,
 
+            "gex_evolution": (
+                gex_evolution
+            ),
+
             "gex_quality": (
                 gex_quality
             ),
@@ -1984,6 +2331,11 @@ class MarketRegimeContext:
                 "gex_atm_window_usable": (
                     gex_quality[
                         "atm_window_usable"
+                    ]
+                ),
+                "gex_evolution_available": (
+                    gex_evolution[
+                        "available"
                     ]
                 ),
                 "timestamps_aligned": (

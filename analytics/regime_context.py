@@ -270,6 +270,7 @@ class MarketRegimeContext:
 
     def _get_market_context_rows(
         self,
+        expiry_date: str,
         limit: int = 2,
     ) -> list[dict]:
 
@@ -310,6 +311,7 @@ class MarketRegimeContext:
 
         WHERE underlying = ?
           AND resolution = ?
+          AND expiry_date = ?
           AND calculation_version = ?
 
         ORDER BY timestamp DESC
@@ -324,6 +326,7 @@ class MarketRegimeContext:
                 (
                     self.UNDERLYING,
                     self.RESOLUTION,
+                    expiry_date,
                     self.MARKET_CONTEXT_VERSION,
                     max(1, int(limit)),
                 ),
@@ -2808,7 +2811,8 @@ class MarketRegimeContext:
 
         context_rows = (
             self._get_market_context_rows(
-                limit=2
+                expiry_date=expiry_date,
+                limit=2,
             )
         )
 

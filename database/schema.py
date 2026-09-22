@@ -9,7 +9,7 @@ from pathlib import Path
 # DATABASE SCHEMA
 # ============================================================
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 SCHEMA_SQL = """
@@ -453,6 +453,8 @@ CREATE TABLE IF NOT EXISTS market_context (
 
     underlying TEXT NOT NULL,
 
+    expiry_date TEXT NOT NULL,
+
     spot_price REAL,
 
     futures_price REAL,
@@ -498,9 +500,11 @@ CREATE TABLE IF NOT EXISTS market_context (
     UNIQUE (
         timestamp,
         resolution,
-        underlying
+        underlying,
+        expiry_date
     )
 );
+
 
 
 CREATE INDEX IF NOT EXISTS idx_market_context_timestamp

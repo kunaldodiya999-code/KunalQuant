@@ -926,6 +926,7 @@ class MarketContextBuilder:
                     "timestamp": timestamp,
                     "resolution": resolution,
                     "underlying": self.UNDERLYING,
+                    "expiry_date": expiry_date,
                     "spot_price": spot_price,
                     "futures_price": futures_price,
                     "futures_oi": futures_oi,
@@ -1016,12 +1017,14 @@ class MarketContextBuilder:
                     DELETE FROM market_context
                     WHERE underlying = ?
                       AND resolution = ?
+                      AND expiry_date = ?
                       AND timestamp BETWEEN ?
                       AND ?
                     """,
                     (
                         self.UNDERLYING,
                         resolution,
+                        expiry_date,
                         start_timestamp,
                         end_timestamp,
                     )
@@ -1034,6 +1037,7 @@ class MarketContextBuilder:
             timestamp,
             resolution,
             underlying,
+            expiry_date,
             spot_price,
             futures_price,
             futures_oi,
@@ -1078,7 +1082,9 @@ class MarketContextBuilder:
             ?,
             ?,
             ?,
-            ?
+            ?,
+            ?,
+        
         )
         """
 
@@ -1087,6 +1093,7 @@ class MarketContextBuilder:
                 row["timestamp"],
                 row["resolution"],
                 row["underlying"],
+                row["expiry_date"],
                 row["spot_price"],
                 row["futures_price"],
                 row["futures_oi"],

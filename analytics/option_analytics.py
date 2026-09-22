@@ -75,6 +75,20 @@ class OptionAnalyticsEngine:
     IV_MAX_ITERATIONS = 100
 
     # =========================================================
+    # IV SURFACE / SKEW V1
+    # =========================================================
+
+    IV_SURFACE_VERSION = "iv_surface_skew_v1.1"
+
+    DELTA_TARGET = 0.25
+
+    DELTA_MAX_DISTANCE = 0.10
+
+    IV_SURFACE_ATM_WINDOW_RADIUS = 3
+
+    IV_SURFACE_MIN_FULL_COVERAGE_PCT = 90.0
+
+    # =========================================================
     # INITIALIZATION
     # =========================================================
 
@@ -1381,6 +1395,884 @@ class OptionAnalyticsEngine:
         }
 
     # =========================================================
+    # IV SURFACE / SKEW - RAW ANALYTICS
+    # =========================================================
+
+    def _get_valid_iv_rows(
+        self,
+        expiry_date: str,
+        timestamp: int | None = None,
+    ) -> list[dict]:
+
+        with self._connect() as connection:
+
+            if timestamp is None:
+
+                latest = connection.execute(
+                    """
+                    SELECT MAX(timestamp) AS timestamp
+                    FROM option_analytics
+
+                    WHERE expiry_date = ?
+                      AND resolution = ?
+                      AND calculation_version = ?
+                      AND implied_volatility IS NOT NULL
+
+                    """,
+                    (
+                        expiry_date,
+                        "1",
+                        self.CALCULATION_VERSION,
+                    ),
+                ).fetchone()
+
+                if (
+                    latest is None
+                    or latest["timestamp"] is None
+                ):
+                    return []
+
+                timestamp = int(
+                    latest["timestamp"]
+                )
+
+            rows = connection.execute(
+                """
+                SELECT
+                    instrument_id,
+                    timestamp,
+                    expiry_date,
+                    strike,
+                    option_type,
+                    dte,
+                    moneyness,
+                    forward_price,
+                    underlying_price,
+                    implied_volatility,
+                    delta,
+                    gamma,
+                    theta,
+                    vega
+
+                FROM option_analytics
+
+                WHERE expiry_date = ?
+                  AND timestamp = ?
+                  AND resolution = ?
+                  AND calculation_version = ?
+                  AND option_type IN ('CE', 'PE')
+                  AND implied_volatility IS NOT NULL
+
+                ORDER BY strike, option_type
+
+                """,
+                (
+                    expiry_date,
+                    timestamp,
+                    "1",
+                    self.CALCULATION_VERSION,
+                ),
+            ).fetchall()
+
+        return [
+            dict(row)
+            for row in rows
+        ]
+
+
+    def _get_expected_surface_strikes(
+        self,
+        expiry_date: str,
+    ) -> list[float]:
+
+        with self._connect() as connection:
+
+            rows = connection.execute(
+                """
+                SELECT DISTINCT strike
+                FROM instruments
+
+                WHERE broker = 'FYERS'
+                  AND underlying = 'NIFTY'
+                  AND expiry_date = ?
+                  AND option_type IN ('CE', 'PE')
+                  AND strike IS NOT NULL
+
+                ORDER BY strike
+                """,
+                (
+                    expiry_date,
+                ),
+            ).fetchall()
+
+        return sorted(
+            {
+                float(row["strike"])
+                for row in rows
+                if row["strike"] is not None
+            }
+        )
+
+
+    @staticmethod
+    def _nearest_row(
+        rows: list[dict],
+        target: float,
+        field: str,
+    ) -> dict | None:
+
+        valid = [
+            row
+            for row in rows
+            if row.get(field) is not None
+        ]
+
+        if not valid:
+            return None
+
+        return min(
+            valid,
+            key=lambda row: abs(
+                float(row[field])
+                - target
+            ),
+        )
+
+
+    def build_iv_surface_snapshot(
+        self,
+        expiry_date: str,
+        timestamp: int | None = None,
+        atm_window_radius: int | None = None,
+        delta_target: float | None = None,
+    ) -> dict:
+
+        rows = self._get_valid_iv_rows(
+            expiry_date=expiry_date,
+            timestamp=timestamp,
+        )
+
+        expected_strikes = (
+            self._get_expected_surface_strikes(
+                expiry_date
+            )
+        )
+
+        expected_contracts = (
+            len(expected_strikes) * 2
+            if expected_strikes
+            else 0
+        )
+
+        valid_contract_keys = {
+            (
+                float(row["strike"]),
+                str(row["option_type"]),
+            )
+            for row in rows
+        }
+
+        valid_contracts = len(
+            valid_contract_keys
+        )
+
+        valid_coverage_pct = (
+            valid_contracts
+            / expected_contracts
+            * 100.0
+            if expected_contracts
+            else 0.0
+        )
+
+        if not rows:
+
+            return {
+                "available": False,
+                "status": "EMPTY",
+                "version": self.IV_SURFACE_VERSION,
+                "expiry_date": expiry_date,
+                "timestamp": timestamp,
+                "expected_contracts": expected_contracts,
+                "valid_iv_contracts": 0,
+                "valid_iv_coverage_pct": 0.0,
+                "forward_price": None,
+                "spot_price": None,
+                "atm_strike": None,
+                "atm_call_iv": None,
+                "atm_put_iv": None,
+                "atm_iv": None,
+                "atm_pair_usable": False,
+                "call_25d_iv": None,
+                "put_25d_iv": None,
+                "call_25d_delta": None,
+                "put_25d_delta": None,
+                "call_25d_strike": None,
+                "put_25d_strike": None,
+                "call_25d_available": False,
+                "put_25d_available": False,
+                "call_skew_vs_atm": None,
+                "put_skew_vs_atm": None,
+                "put_call_iv_skew": None,
+                "iv_min": None,
+                "iv_max": None,
+                "iv_median": None,
+                "surface": [],
+            }
+
+
+        # -----------------------------------------------------
+        # Use median underlying/forward values from the rows.
+        # -----------------------------------------------------
+
+        forward_values = [
+            float(row["forward_price"])
+            for row in rows
+            if row["forward_price"] is not None
+        ]
+
+        spot_values = [
+            float(row["underlying_price"])
+            for row in rows
+            if row["underlying_price"] is not None
+        ]
+
+        forward_price = (
+            sum(forward_values)
+            / len(forward_values)
+            if forward_values
+            else None
+        )
+
+        spot_price = (
+            sum(spot_values)
+            / len(spot_values)
+            if spot_values
+            else None
+        )
+
+
+        # -----------------------------------------------------
+        # Separate spot ATM and forward ATM.
+        #
+        # Forward ATM is used for the Black-76 model.
+        # Spot ATM is retained for market-facing analysis.
+        # -----------------------------------------------------
+
+        forward_atm_strike = None
+
+        spot_atm_strike = None
+
+        if (
+            forward_price is not None
+            and expected_strikes
+        ):
+
+            forward_atm_strike = min(
+                expected_strikes,
+                key=lambda strike: abs(
+                    strike
+                    - forward_price
+                ),
+            )
+
+        if (
+            spot_price is not None
+            and expected_strikes
+        ):
+
+            spot_atm_strike = min(
+                expected_strikes,
+                key=lambda strike: abs(
+                    strike
+                    - spot_price
+                ),
+            )
+
+        # Black-76 ATM reference remains the forward ATM.
+        atm_strike = forward_atm_strike
+
+
+        # -----------------------------------------------------
+        # ATM CE / PE
+        # -----------------------------------------------------
+
+        atm_call = None
+
+        atm_put = None
+
+        if atm_strike is not None:
+
+            atm_call = next(
+                (
+                    row
+                    for row in rows
+                    if (
+                        float(row["strike"])
+                        == atm_strike
+                        and row["option_type"]
+                        == "CE"
+                    )
+                ),
+                None,
+            )
+
+            atm_put = next(
+                (
+                    row
+                    for row in rows
+                    if (
+                        float(row["strike"])
+                        == atm_strike
+                        and row["option_type"]
+                        == "PE"
+                    )
+                ),
+                None,
+            )
+
+        atm_call_iv = (
+            float(atm_call["implied_volatility"])
+            if atm_call is not None
+            else None
+        )
+
+        atm_put_iv = (
+            float(atm_put["implied_volatility"])
+            if atm_put is not None
+            else None
+        )
+
+        atm_iv_values = [
+            value
+            for value in (
+                atm_call_iv,
+                atm_put_iv,
+            )
+            if value is not None
+        ]
+
+        atm_iv = (
+            sum(atm_iv_values)
+            / len(atm_iv_values)
+            if atm_iv_values
+            else None
+        )
+
+        atm_pair_usable = (
+            atm_call_iv is not None
+            and atm_put_iv is not None
+        )
+
+
+        # -----------------------------------------------------
+        # 25 Delta selections
+        # -----------------------------------------------------
+
+        target = (
+            self.DELTA_TARGET
+            if delta_target is None
+            else float(delta_target)
+        )
+
+        call_rows = [
+            row
+            for row in rows
+            if (
+                row["option_type"] == "CE"
+                and row["delta"] is not None
+            )
+        ]
+
+        put_rows = [
+            row
+            for row in rows
+            if (
+                row["option_type"] == "PE"
+                and row["delta"] is not None
+            )
+        ]
+
+        call_25d = self._nearest_row(
+            call_rows,
+            target,
+            "delta",
+        )
+
+        put_25d = self._nearest_row(
+            put_rows,
+            -target,
+            "delta",
+        )
+
+        call_25d_available = (
+            call_25d is not None
+            and abs(
+                float(call_25d["delta"])
+                - target
+            )
+            <= self.DELTA_MAX_DISTANCE
+        )
+
+        put_25d_available = (
+            put_25d is not None
+            and abs(
+                float(put_25d["delta"])
+                + target
+            )
+            <= self.DELTA_MAX_DISTANCE
+        )
+
+        if not call_25d_available:
+            call_25d = None
+
+        if not put_25d_available:
+            put_25d = None
+
+
+        call_25d_iv = (
+            float(call_25d["implied_volatility"])
+            if call_25d is not None
+            else None
+        )
+
+        put_25d_iv = (
+            float(put_25d["implied_volatility"])
+            if put_25d is not None
+            else None
+        )
+
+
+        # -----------------------------------------------------
+        # Skew calculations.
+        #
+        # Call skew vs ATM:
+        #     25? Call IV - ATM IV
+        #
+        # Put skew vs ATM:
+        #     25? Put IV - ATM IV
+        #
+        # Put-call IV skew:
+        #     25? Put IV - 25? Call IV
+        # -----------------------------------------------------
+
+        call_skew_vs_atm = (
+            call_25d_iv - atm_iv
+            if (
+                call_25d_iv is not None
+                and atm_iv is not None
+            )
+            else None
+        )
+
+        put_skew_vs_atm = (
+            put_25d_iv - atm_iv
+            if (
+                put_25d_iv is not None
+                and atm_iv is not None
+            )
+            else None
+        )
+
+        put_call_iv_skew = (
+            put_25d_iv - call_25d_iv
+            if (
+                put_25d_iv is not None
+                and call_25d_iv is not None
+            )
+            else None
+        )
+
+
+        # -----------------------------------------------------
+        # IV statistics.
+        # -----------------------------------------------------
+
+        iv_values = [
+            float(row["implied_volatility"])
+            for row in rows
+            if row["implied_volatility"] is not None
+        ]
+
+        iv_min = (
+            min(iv_values)
+            if iv_values
+            else None
+        )
+
+        iv_max = (
+            max(iv_values)
+            if iv_values
+            else None
+        )
+
+        iv_median = None
+
+        if iv_values:
+
+            ordered = sorted(
+                iv_values
+            )
+
+            middle = len(ordered) // 2
+
+            if len(ordered) % 2:
+
+                iv_median = (
+                    ordered[middle]
+                )
+
+            else:
+
+                iv_median = (
+                    ordered[middle - 1]
+                    + ordered[middle]
+                ) / 2.0
+
+
+        # -----------------------------------------------------
+        # ATM ? N strike surface.
+        # -----------------------------------------------------
+
+        radius = (
+            self.IV_SURFACE_ATM_WINDOW_RADIUS
+            if atm_window_radius is None
+            else max(
+                0,
+                int(atm_window_radius),
+            )
+        )
+
+        surface_strikes = []
+
+        if atm_strike is not None:
+
+            try:
+                atm_index = expected_strikes.index(
+                    atm_strike
+                )
+            except ValueError:
+                atm_index = None
+
+            if atm_index is not None:
+
+                start_index = max(
+                    0,
+                    atm_index - radius,
+                )
+
+                end_index = min(
+                    len(expected_strikes),
+                    atm_index + radius + 1,
+                )
+
+                surface_strikes = (
+                    expected_strikes[
+                        start_index:end_index
+                    ]
+                )
+
+
+        surface = []
+
+        surface_expected_strikes = len(
+            surface_strikes
+        )
+
+        surface_observed_strikes = 0
+
+        surface_complete_pairs = 0
+
+        for strike in surface_strikes:
+
+            ce = next(
+                (
+                    row
+                    for row in rows
+                    if (
+                        float(row["strike"])
+                        == strike
+                        and row["option_type"]
+                        == "CE"
+                    )
+                ),
+                None,
+            )
+
+            pe = next(
+                (
+                    row
+                    for row in rows
+                    if (
+                        float(row["strike"])
+                        == strike
+                        and row["option_type"]
+                        == "PE"
+                    )
+                ),
+                None,
+            )
+
+            if ce is not None or pe is not None:
+                surface_observed_strikes += 1
+
+            if (
+                ce is not None
+                and pe is not None
+            ):
+                surface_complete_pairs += 1
+
+            surface.append(
+                {
+                    "strike": strike,
+
+                    "moneyness": (
+                        float(ce["moneyness"])
+                        if ce is not None
+                        and ce["moneyness"] is not None
+                        else (
+                            float(pe["moneyness"])
+                            if pe is not None
+                            and pe["moneyness"] is not None
+                            else None
+                        )
+                    ),
+
+                    "call_iv": (
+                        float(ce["implied_volatility"])
+                        if ce is not None
+                        else None
+                    ),
+
+                    "put_iv": (
+                        float(pe["implied_volatility"])
+                        if pe is not None
+                        else None
+                    ),
+
+                    "call_delta": (
+                        float(ce["delta"])
+                        if ce is not None
+                        and ce["delta"] is not None
+                        else None
+                    ),
+
+                    "put_delta": (
+                        float(pe["delta"])
+                        if pe is not None
+                        and pe["delta"] is not None
+                        else None
+                    ),
+
+                    "pair_complete": (
+                        ce is not None
+                        and pe is not None
+                    ),
+                }
+            )
+
+
+        if valid_contracts == 0:
+
+            status = "EMPTY"
+
+        elif (
+            valid_coverage_pct
+            >= self.IV_SURFACE_MIN_FULL_COVERAGE_PCT
+        ):
+
+            status = "COMPLETE"
+
+        else:
+
+            status = "PARTIAL"
+
+
+        return {
+            "available": True,
+
+            "status": status,
+
+            "version": (
+                self.IV_SURFACE_VERSION
+            ),
+
+            "expiry_date": expiry_date,
+
+            "timestamp": (
+                int(rows[0]["timestamp"])
+                if rows
+                else timestamp
+            ),
+
+            "expected_contracts": (
+                expected_contracts
+            ),
+
+            "valid_iv_contracts": (
+                valid_contracts
+            ),
+
+            "valid_iv_coverage_pct": (
+                valid_coverage_pct
+            ),
+
+            "forward_price": (
+                forward_price
+            ),
+
+            "spot_price": (
+                spot_price
+            ),
+
+            "spot_atm_strike": (
+                spot_atm_strike
+            ),
+
+            "forward_atm_strike": (
+                forward_atm_strike
+            ),
+
+            "atm_strike": (
+                atm_strike
+            ),
+
+            "atm_reference": "FORWARD",
+
+            "atm_call_iv": (
+                atm_call_iv
+            ),
+
+            "atm_put_iv": (
+                atm_put_iv
+            ),
+
+            "atm_iv": (
+                atm_iv
+            ),
+
+            "atm_pair_usable": (
+                atm_pair_usable
+            ),
+
+            "delta_target": (
+                target
+            ),
+
+            "delta_max_distance": (
+                self.DELTA_MAX_DISTANCE
+            ),
+
+            "call_25d_iv": (
+                call_25d_iv
+            ),
+
+            "put_25d_iv": (
+                put_25d_iv
+            ),
+
+            "call_25d_delta": (
+                float(call_25d["delta"])
+                if call_25d is not None
+                else None
+            ),
+
+            "put_25d_delta": (
+                float(put_25d["delta"])
+                if put_25d is not None
+                else None
+            ),
+
+            "call_25d_strike": (
+                float(call_25d["strike"])
+                if call_25d is not None
+                else None
+            ),
+
+            "put_25d_strike": (
+                float(put_25d["strike"])
+                if put_25d is not None
+                else None
+            ),
+
+            "call_25d_available": (
+                call_25d_available
+            ),
+
+            "put_25d_available": (
+                put_25d_available
+            ),
+
+            "call_25d_status": (
+                "AVAILABLE"
+                if call_25d_available
+                else "NOT_AVAILABLE"
+            ),
+
+            "put_25d_status": (
+                "AVAILABLE"
+                if put_25d_available
+                else "NOT_AVAILABLE"
+            ),
+
+            "call_skew_vs_atm": (
+                call_skew_vs_atm
+            ),
+
+            "put_skew_vs_atm": (
+                put_skew_vs_atm
+            ),
+
+            "put_call_iv_skew": (
+                put_call_iv_skew
+            ),
+
+            "iv_min": iv_min,
+
+            "iv_max": iv_max,
+
+            "iv_median": iv_median,
+
+            "atm_window_radius": (
+                radius
+            ),
+
+            "surface_expected_strikes": (
+                surface_expected_strikes
+            ),
+
+            "surface_observed_strikes": (
+                surface_observed_strikes
+            ),
+
+            "surface_presence_pct": (
+                surface_observed_strikes
+                / surface_expected_strikes
+                * 100.0
+                if surface_expected_strikes
+                else 0.0
+            ),
+
+            "surface_complete_pairs": (
+                surface_complete_pairs
+            ),
+
+            "surface_pair_coverage_pct": (
+                surface_complete_pairs
+                / surface_expected_strikes
+                * 100.0
+                if surface_expected_strikes
+                else 0.0
+            ),
+
+            "surface_valid_iv_rows": (
+                len(rows)
+            ),
+
+            "surface": surface,
+        }
+
+
+    # =========================================================
     # SAMPLE
     # =========================================================
 
@@ -1413,6 +2305,15 @@ def main() -> None:
         "--sample",
         action="store_true",
         help="Run controlled 2024-11-28 sample.",
+    )
+
+    parser.add_argument(
+        "--surface-sample",
+        action="store_true",
+        help=(
+            "Read the latest existing "
+            "2024-11-28 IV surface."
+        ),
     )
 
     parser.add_argument(
@@ -1501,7 +2402,13 @@ def main() -> None:
         discount_factor=args.discount_factor,
     )
 
-    if args.sample:
+    if args.surface_sample:
+
+        result = engine.build_iv_surface_snapshot(
+            expiry_date="2024-11-28",
+        )
+
+    elif args.sample:
 
         result = engine.run_sample()
 
@@ -1541,7 +2448,11 @@ def main() -> None:
     )
 
     print(
-        "OPTION IV / GREEKS RESULT"
+        (
+            "OPTION IV / GREEKS RESULT"
+            if not args.surface_sample
+            else "OPTION IV SURFACE / SKEW RESULT"
+        )
     )
 
     print(

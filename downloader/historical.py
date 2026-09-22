@@ -409,6 +409,45 @@ class HistoricalDownloader:
 
             connection.commit()
 
+    def _mark_completed(
+        self,
+        job_id: int,
+        received_candles: int,
+        inserted_candles: int,
+        duplicate_candles: int,
+    ) -> None:
+
+        sql = """
+        UPDATE download_jobs
+
+        SET
+            status = 'COMPLETED',
+
+            received_candles = ?,
+
+            inserted_candles = ?,
+
+            duplicate_candles = ?,
+
+            completed_at = CURRENT_TIMESTAMP
+
+        WHERE id = ?
+        """
+
+        with self._connect() as connection:
+
+            connection.execute(
+                sql,
+                (
+                    received_candles,
+                    inserted_candles,
+                    duplicate_candles,
+                    job_id,
+                )
+            )
+
+            connection.commit()
+
     def _mark_failed(
         self,
         job_id: int,
@@ -920,7 +959,7 @@ class HistoricalDownloader:
                     or 0
                 ),
             }
-        
+
         job_id = self._create_job(
             symbol=symbol,
             instrument_id=instrument_id,
@@ -1074,6 +1113,7 @@ class HistoricalDownloader:
                     raw_path
                 ),
             }
+
         inserted, duplicates = (
             self._store_candles(
                 instrument_id=instrument_id,

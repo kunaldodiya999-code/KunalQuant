@@ -683,6 +683,10 @@ class OptionAnalyticsEngine:
         expiry_date: str,
     ) -> str | None:
 
+        # -----------------------------------------------------
+        # 1. Prefer an exact-expiry futures contract.
+        # -----------------------------------------------------
+
         with self._connect() as connection:
 
             row = connection.execute(
@@ -705,7 +709,8 @@ class OptionAnalyticsEngine:
         if row is None:
 
             # Some databases may contain instrument_type
-            # as an integer value rather than text.
+            # as an integer rather than text.
+
             with self._connect() as connection:
 
                 row = connection.execute(
@@ -725,13 +730,101 @@ class OptionAnalyticsEngine:
                     ),
                 ).fetchone()
 
-        if row is None:
+        if row is not None:
 
-            return None
+            return str(
+                row["symbol"]
+            )
 
-        return str(
-            row["symbol"]
-        )
+        # -----------------------------------------------------
+        # 2. No exact-expiry future exists.
+        #
+        # For weekly option expiries, use the nearest future
+        # contract AFTER the option expiry as the forward proxy.
+        #
+        # Example:
+        #   Option expiry : 2024-11-21
+        #   Futures       : NIFTY24NOVFUT
+        #   Futures expiry: 2024-11-28
+        # -----------------------------------------------------
+
+        with self._connect() as connection:
+
+            row = connection.execute(
+                """
+                SELECT symbol
+                FROM instruments
+                WHERE broker = 'FYERS'
+                  AND underlying = 'NIFTY'
+                  AND expiry_date > ?
+                  AND instrument_type IN ('11', 11)
+                  AND option_type = 'XX'
+                ORDER BY expiry_date ASC, symbol ASC
+                LIMIT 1
+                """,
+                (
+                    expiry_date,
+                ),
+            ).fetchone()
+
+        if row is not None:
+
+            print(
+                "\nWARNING: No exact-expiry NIFTY "
+                "futures contract found."
+            )
+
+            print(
+                f"Using nearest later futures contract: "
+                f"{row['symbol']}"
+            )
+
+            return str(
+                row["symbol"]
+            )
+
+        # -----------------------------------------------------
+        # 3. Final fallback:
+        # use the nearest previous futures contract.
+        # This should only occur when no later future exists.
+        # -----------------------------------------------------
+
+        with self._connect() as connection:
+
+            row = connection.execute(
+                """
+                SELECT symbol
+                FROM instruments
+                WHERE broker = 'FYERS'
+                  AND underlying = 'NIFTY'
+                  AND expiry_date < ?
+                  AND instrument_type IN ('11', 11)
+                  AND option_type = 'XX'
+                ORDER BY expiry_date DESC, symbol DESC
+                LIMIT 1
+                """,
+                (
+                    expiry_date,
+                ),
+            ).fetchone()
+
+        if row is not None:
+
+            print(
+                "\nWARNING: No exact or later NIFTY "
+                "futures contract found."
+            )
+
+            print(
+                f"Using nearest previous futures contract: "
+                f"{row['symbol']}"
+            )
+
+            return str(
+                row["symbol"]
+            )
+
+        return None
 
     # =========================================================
     # SERIES
@@ -2317,6 +2410,15 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--surface",
+        action="store_true",
+        help=(
+            "Build the latest IV surface "
+            "for the specified expiry."
+        ),
+    )
+
+    parser.add_argument(
         "--expiry",
         type=str,
         default=None,
@@ -2408,6 +2510,18 @@ def main() -> None:
             expiry_date="2024-11-28",
         )
 
+    elif args.surface:
+
+        if not args.expiry:
+
+            raise SystemExit(
+                "--expiry is required with --surface."
+            )
+
+        result = engine.build_iv_surface_snapshot(
+            expiry_date=args.expiry,
+        )
+
     elif args.sample:
 
         result = engine.run_sample()
@@ -2449,9 +2563,12 @@ def main() -> None:
 
     print(
         (
-            "OPTION IV / GREEKS RESULT"
-            if not args.surface_sample
-            else "OPTION IV SURFACE / SKEW RESULT"
+            "OPTION IV SURFACE / SKEW RESULT"
+            if (
+                args.surface_sample
+                or args.surface
+            )
+            else "OPTION IV / GREEKS RESULT"
         )
     )
 

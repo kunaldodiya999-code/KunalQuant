@@ -3,11 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+from datetime import datetime, time
+from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo
+
 from instruments.contract_specs import (
     ContractSpecRegistry,
 )
-from pathlib import Path
-from typing import Any
 
 from config.settings import DATABASE_PATH
 
@@ -59,6 +62,18 @@ class GEXEngine:
     CALCULATION_VERSION = (
         "gex_v1_black76_ltp"
     )
+
+    # ---------------------------------------------------------
+    # GEX QUALITY
+    # ---------------------------------------------------------
+
+    TIMEZONE = ZoneInfo(
+        "Asia/Kolkata"
+    )
+
+    NEAR_EXPIRY_MINUTES = 15.0
+
+    EXTREME_GAMMA_1PCT_THRESHOLD = 1.0
 
     # ---------------------------------------------------------
     # Database
@@ -371,7 +386,162 @@ class GEXEngine:
             for row in rows
             if row["close"] is not None
         }
+    # ---------------------------------------------------------
+    # GEX quality classification
+    # ---------------------------------------------------------
 
+    @classmethod
+    def classify_gex_quality(
+        cls,
+        timestamp: int,
+        expiry_date: str,
+        spot_price: float,
+        call_gamma: float | None,
+        put_gamma: float | None,
+    ) -> dict:
+
+        expiry_datetime = datetime.combine(
+            datetime.strptime(
+                expiry_date,
+                "%Y-%m-%d",
+            ).date(),
+            time(
+                15,
+                30,
+            ),
+            tzinfo=cls.TIMEZONE,
+        )
+
+        expiry_timestamp = int(
+            expiry_datetime.timestamp()
+        )
+
+        seconds_remaining = (
+            expiry_timestamp
+            - int(timestamp)
+        )
+
+        dte_seconds = max(
+            seconds_remaining,
+            0,
+        )
+
+        dte_minutes = (
+            dte_seconds
+            / 60.0
+        )
+
+        gamma_values = [
+            float(value)
+            for value in (
+                call_gamma,
+                put_gamma,
+            )
+            if value is not None
+            and value >= 0
+        ]
+
+        max_gamma = (
+            max(gamma_values)
+            if gamma_values
+            else None
+        )
+
+        gamma_1pct = (
+            max_gamma
+            * float(spot_price)
+            * 0.01
+            if (
+                max_gamma is not None
+                and spot_price is not None
+                and spot_price > 0
+            )
+            else None
+        )
+
+        expiry_day = (
+            datetime.fromtimestamp(
+                int(timestamp),
+                tz=cls.TIMEZONE,
+            ).date()
+            == expiry_datetime.date()
+        )
+
+        near_expiry = (
+            dte_seconds > 0
+            and dte_minutes
+            <= cls.NEAR_EXPIRY_MINUTES
+        )
+
+        extreme_gamma = (
+            gamma_1pct is not None
+            and gamma_1pct
+            > cls.EXTREME_GAMMA_1PCT_THRESHOLD
+        )
+
+        flags = []
+
+        if expiry_day:
+            flags.append(
+                "EXPIRY_DAY"
+            )
+
+        if near_expiry:
+            flags.append(
+                "NEAR_EXPIRY"
+            )
+
+        if extreme_gamma:
+            flags.append(
+                "EXTREME_GAMMA"
+            )
+
+        if (
+            near_expiry
+            and extreme_gamma
+        ):
+            quality = (
+                "EXTREME_NEAR_EXPIRY"
+            )
+
+        elif extreme_gamma:
+            quality = (
+                "EXTREME_GAMMA"
+            )
+
+        elif near_expiry:
+            quality = (
+                "NEAR_EXPIRY"
+            )
+
+        elif expiry_day:
+            quality = (
+                "EXPIRY_DAY"
+            )
+
+        else:
+            quality = "NORMAL"
+
+        return {
+            "dte_seconds": dte_seconds,
+            "dte_minutes": dte_minutes,
+            "expiry_state": (
+                "NEAR_EXPIRY"
+                if near_expiry
+                else (
+                    "EXPIRY_DAY"
+                    if expiry_day
+                    else "NORMAL"
+                )
+            ),
+            "max_gamma": max_gamma,
+            "gamma_1pct": gamma_1pct,
+            "extreme_gamma": (
+                extreme_gamma
+            ),
+            "quality_flags": flags,
+            "gex_quality": quality,
+        }
     # ---------------------------------------------------------
     # Build snapshots
     # ---------------------------------------------------------
@@ -454,7 +624,9 @@ class GEXEngine:
             )
 
             lot_size = (
-                int(row["lot_size"])
+                int(
+                    row["lot_size"]
+                )
                 if row["lot_size"] is not None
                 else (
                     self.contract_specs.get_lot_size(
@@ -591,6 +763,54 @@ class GEXEngine:
             snapshot[
                 "calculation_version"
             ] = self.CALCULATION_VERSION
+
+            quality = (
+                self.classify_gex_quality(
+                    timestamp=int(
+                        snapshot["timestamp"]
+                    ),
+                    expiry_date=expiry_date,
+                    spot_price=float(
+                        snapshot["spot_price"]
+                    ),
+                    call_gamma=snapshot[
+                        "call_gamma"
+                    ],
+                    put_gamma=snapshot[
+                        "put_gamma"
+                    ],
+                )
+            )
+
+            snapshot[
+                "gex_quality"
+            ] = quality[
+                "gex_quality"
+            ]
+
+            snapshot[
+                "dte_seconds"
+            ] = quality[
+                "dte_seconds"
+            ]
+
+            snapshot[
+                "dte_minutes"
+            ] = quality[
+                "dte_minutes"
+            ]
+
+            snapshot[
+                "gamma_1pct"
+            ] = quality[
+                "gamma_1pct"
+            ]
+
+            snapshot[
+                "quality_flags"
+            ] = quality[
+                "quality_flags"
+            ]
 
             snapshots.append(
                 snapshot

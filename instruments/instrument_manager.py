@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 
 from api.fyers_client import FyersClient
@@ -230,24 +231,146 @@ class InstrumentManager:
         option_type = "XX"
         instrument_type = 11
 
-        # -----------------------------------------------------
+                # -----------------------------------------------------
         # OPTION
         # -----------------------------------------------------
 
         option_match = re.match(
-            r"^(.*?)(\d+)(CE|PE)$",
+            r"^(.*?)(CE|PE)$",
             ticker,
             flags=re.IGNORECASE,
         )
 
         if option_match:
 
-            strike = float(
-                option_match.group(2)
+            option_type = (
+                option_match.group(2).upper()
+            )
+            instrument_type = 14
+
+            option_body = (
+                option_match.group(1)
             )
 
-            option_type = (
-                option_match.group(3).upper()
+            # -------------------------------------------------
+            # Decode the known historical FYERS expiry token.
+            #
+            # Observed FYERS formats include:
+            #
+            # Weekly:
+            #   NIFTY24N2118200CE
+            #        ^^^^^  ^^^^^
+            #        24N21  18200
+            #
+            # Monthly:
+            #   NIFTY24NOV22500CE
+            #        ^^^^^^ ^^^^^
+            #        24NOV   22500
+            #
+            # The expiry date passed to this function is the
+            # authoritative source for constructing the token.
+            # -------------------------------------------------
+
+            expiry_value = datetime.strptime(
+                expiry_date,
+                "%Y-%m-%d",
+            )
+
+            year_code = (
+                expiry_value.strftime("%y")
+            )
+
+            month_number = (
+                expiry_value.strftime("%m")
+            )
+
+            day_code = (
+                expiry_value.strftime("%d")
+            )
+
+            month_letter = (
+                expiry_value.strftime("%b")[0].upper()
+            )
+
+            month_short = (
+                expiry_value.strftime("%b").upper()
+            )
+
+            expiry_candidates = [
+                year_code
+                + month_letter
+                + day_code,
+
+                year_code
+                + month_short
+                + day_code,
+
+                year_code
+                + month_short,
+
+                year_code
+                + month_number
+                + day_code,
+
+                year_code
+                + month_number,
+            ]
+
+            expiry_candidates = sorted(
+                set(expiry_candidates),
+                key=len,
+                reverse=True,
+            )
+
+            expiry_index = None
+            expiry_prefix = None
+            strike_text = None
+
+            for candidate in expiry_candidates:
+
+                index = option_body.find(
+                    candidate
+                )
+
+                if index <= 0:
+
+                    continue
+
+                possible_strike = (
+                    option_body[
+                        index
+                        + len(candidate):
+                    ]
+                )
+
+                if not possible_strike:
+
+                    continue
+
+                if not possible_strike.isdigit():
+
+                    continue
+
+                expiry_index = index
+                expiry_prefix = candidate
+                strike_text = possible_strike
+
+                break
+
+            if (
+                expiry_index is None
+                or expiry_prefix is None
+                or strike_text is None
+            ):
+
+                raise ValueError(
+                    "Unable to decode expiry/strike "
+                    f"from expired option symbol: "
+                    f"{symbol} | expiry={expiry_date}"
+                )
+
+            strike = float(
+                strike_text
             )
 
         # -----------------------------------------------------

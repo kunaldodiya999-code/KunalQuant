@@ -7,6 +7,9 @@ import sqlite3
 from pathlib import Path
 
 from config.settings import DATABASE_PATH
+from analytics.option_analytics import (
+    OptionAnalyticsEngine,
+)
 
 
 class MarketRegimeContext:
@@ -85,6 +88,11 @@ class MarketRegimeContext:
     # window.
     GEX_MIN_ATM_PAIR_COVERAGE_PCT = 70.0
 
+    # Minimum valid-IV contract coverage required before
+    # the IV surface is considered usable as a full-expiry
+    # analytical surface.
+    IV_SURFACE_MIN_COVERAGE_PCT = 90.0
+
     # =========================================================
     # DATABASE
     # =========================================================
@@ -158,6 +166,7 @@ class MarketRegimeContext:
         option_chain_status: str,
         atm_data_usable: bool,
         pcr_oi_usable: bool,
+        iv_surface_usable: bool,
         gex_full_chain_usable: bool,
         gex_atm_window_usable: bool,
         market_context_available: bool,
@@ -190,6 +199,7 @@ class MarketRegimeContext:
             and gex_available
             and option_chain_status == "COMPLETE"
             and pcr_oi_usable
+            and iv_surface_usable
             and gex_full_chain_usable
             and timestamps_aligned
         ):
@@ -220,6 +230,12 @@ class MarketRegimeContext:
             "pcr_status": (
                 "USABLE"
                 if pcr_oi_usable
+                else "NOT_USABLE"
+            ),
+
+            "iv_surface_status": (
+                "USABLE"
+                if iv_surface_usable
                 else "NOT_USABLE"
             ),
 
@@ -394,6 +410,314 @@ class MarketRegimeContext:
                 if row["strike"] is not None
             }
         )
+
+    # =========================================================
+    # IV SURFACE / SKEW
+    # =========================================================
+
+    def _build_iv_surface_context(
+        self,
+        expiry_date: str,
+        timestamp: int,
+    ) -> dict:
+
+        engine = OptionAnalyticsEngine(
+            database_path=self.database_path,
+        )
+
+        surface = (
+            engine.build_iv_surface_snapshot(
+                expiry_date=expiry_date,
+                timestamp=timestamp,
+            )
+        )
+
+        surface_timestamp = surface.get(
+            "timestamp"
+        )
+
+        timestamp_aligned = (
+            surface.get("available", False)
+            and surface_timestamp is not None
+            and int(surface_timestamp)
+            == int(timestamp)
+        )
+
+        coverage_pct = (
+            float(
+                surface.get(
+                    "valid_iv_coverage_pct",
+                    0.0,
+                )
+            )
+        )
+
+        atm_pair_usable = bool(
+            surface.get(
+                "atm_pair_usable",
+                False,
+            )
+        )
+
+        iv_surface_usable = (
+            surface.get("available", False)
+            and timestamp_aligned
+            and coverage_pct
+            >= self.IV_SURFACE_MIN_COVERAGE_PCT
+            and atm_pair_usable
+        )
+
+        surface_status = str(
+            surface.get(
+                "status",
+                "UNAVAILABLE",
+            )
+        )
+
+        return {
+            "available": bool(
+                surface.get(
+                    "available",
+                    False,
+                )
+            ),
+
+            "status": surface_status,
+
+            "usable": iv_surface_usable,
+
+            "timestamp": (
+                surface_timestamp
+            ),
+
+            "timestamp_aligned": (
+                timestamp_aligned
+            ),
+
+            "version": (
+                surface.get(
+                    "version"
+                )
+            ),
+
+            "expiry_date": (
+                surface.get(
+                    "expiry_date"
+                )
+            ),
+
+            "expected_contracts": (
+                surface.get(
+                    "expected_contracts",
+                    0,
+                )
+            ),
+
+            "valid_iv_contracts": (
+                surface.get(
+                    "valid_iv_contracts",
+                    0,
+                )
+            ),
+
+            "valid_iv_coverage_pct": (
+                coverage_pct
+            ),
+
+            "coverage_threshold_pct": (
+                self.IV_SURFACE_MIN_COVERAGE_PCT
+            ),
+
+            "forward_price": (
+                surface.get(
+                    "forward_price"
+                )
+            ),
+
+            "spot_price": (
+                surface.get(
+                    "spot_price"
+                )
+            ),
+
+            "spot_atm_strike": (
+                surface.get(
+                    "spot_atm_strike"
+                )
+            ),
+
+            "forward_atm_strike": (
+                surface.get(
+                    "forward_atm_strike"
+                )
+            ),
+
+            "atm_strike": (
+                surface.get(
+                    "atm_strike"
+                )
+            ),
+
+            "atm_reference": (
+                surface.get(
+                    "atm_reference"
+                )
+            ),
+
+            "atm_call_iv": (
+                surface.get(
+                    "atm_call_iv"
+                )
+            ),
+
+            "atm_put_iv": (
+                surface.get(
+                    "atm_put_iv"
+                )
+            ),
+
+            "atm_iv": (
+                surface.get(
+                    "atm_iv"
+                )
+            ),
+
+            "atm_pair_usable": (
+                atm_pair_usable
+            ),
+
+            "delta_target": (
+                surface.get(
+                    "delta_target"
+                )
+            ),
+
+            "call_25d_iv": (
+                surface.get(
+                    "call_25d_iv"
+                )
+            ),
+
+            "put_25d_iv": (
+                surface.get(
+                    "put_25d_iv"
+                )
+            ),
+
+            "call_25d_delta": (
+                surface.get(
+                    "call_25d_delta"
+                )
+            ),
+
+            "put_25d_delta": (
+                surface.get(
+                    "put_25d_delta"
+                )
+            ),
+
+            "call_25d_strike": (
+                surface.get(
+                    "call_25d_strike"
+                )
+            ),
+
+            "put_25d_strike": (
+                surface.get(
+                    "put_25d_strike"
+                )
+            ),
+
+            "call_25d_status": (
+                surface.get(
+                    "call_25d_status"
+                )
+            ),
+
+            "put_25d_status": (
+                surface.get(
+                    "put_25d_status"
+                )
+            ),
+
+            "call_skew_vs_atm": (
+                surface.get(
+                    "call_skew_vs_atm"
+                )
+            ),
+
+            "put_skew_vs_atm": (
+                surface.get(
+                    "put_skew_vs_atm"
+                )
+            ),
+
+            "put_call_iv_skew": (
+                surface.get(
+                    "put_call_iv_skew"
+                )
+            ),
+
+            "iv_min": (
+                surface.get(
+                    "iv_min"
+                )
+            ),
+
+            "iv_max": (
+                surface.get(
+                    "iv_max"
+                )
+            ),
+
+            "iv_median": (
+                surface.get(
+                    "iv_median"
+                )
+            ),
+
+            "surface_expected_strikes": (
+                surface.get(
+                    "surface_expected_strikes",
+                    0,
+                )
+            ),
+
+            "surface_observed_strikes": (
+                surface.get(
+                    "surface_observed_strikes",
+                    0,
+                )
+            ),
+
+            "surface_presence_pct": (
+                surface.get(
+                    "surface_presence_pct",
+                    0.0,
+                )
+            ),
+
+            "surface_complete_pairs": (
+                surface.get(
+                    "surface_complete_pairs",
+                    0,
+                )
+            ),
+
+            "surface_pair_coverage_pct": (
+                surface.get(
+                    "surface_pair_coverage_pct",
+                    0.0,
+                )
+            ),
+
+            "surface": (
+                surface.get(
+                    "surface",
+                    [],
+                )
+            ),
+        }
 
     # =========================================================
     # GEX QUALITY GUARD
@@ -2026,6 +2350,17 @@ class MarketRegimeContext:
             "pcr_oi_usable"
         ]
 
+        iv_surface = (
+            self._build_iv_surface_context(
+                expiry_date=expiry_date,
+                timestamp=current_timestamp,
+            )
+        )
+
+        iv_surface_usable = iv_surface[
+            "usable"
+        ]
+
         # =====================================================
         # GEX
         # =====================================================
@@ -2105,6 +2440,9 @@ class MarketRegimeContext:
                 ),
                 atm_data_usable=atm_usable,
                 pcr_oi_usable=pcr_usable,
+                iv_surface_usable=(
+                    iv_surface_usable
+                ),
                 gex_full_chain_usable=(
                     gex_quality[
                         "full_chain_usable"
@@ -2274,10 +2612,18 @@ class MarketRegimeContext:
 
                 "atm_data_usable": atm_usable,
                 "pcr_oi_usable": pcr_usable,
+
+                "iv_surface": (
+                    iv_surface
+                ),
             },
 
             "option_chain_quality": (
                 option_chain_quality
+            ),
+
+            "iv_surface": (
+                iv_surface
             ),
 
             "gex": gex,
@@ -2317,6 +2663,29 @@ class MarketRegimeContext:
                 ),
                 "atm_data_usable": atm_usable,
                 "pcr_oi_usable": pcr_usable,
+
+                "iv_surface_available": (
+                    iv_surface[
+                        "available"
+                    ]
+                ),
+
+                "iv_surface_status": (
+                    iv_surface[
+                        "status"
+                    ]
+                ),
+
+                "iv_surface_usable": (
+                    iv_surface_usable
+                ),
+
+                "iv_surface_timestamp_aligned": (
+                    iv_surface[
+                        "timestamp_aligned"
+                    ]
+                ),
+
                 "gex_available": (
                     gex["available"]
                 ),

@@ -7,8 +7,13 @@ import sqlite3
 from pathlib import Path
 
 from config.settings import DATABASE_PATH
+
 from analytics.option_analytics import (
     OptionAnalyticsEngine,
+)
+
+from analytics.gex_profile import (
+    GEXProfileEngine,
 )
 
 
@@ -104,6 +109,12 @@ class MarketRegimeContext:
 
         self.database_path = Path(
             database_path
+        )
+
+        self.gex_profile_engine = (
+            GEXProfileEngine(
+                database_path=self.database_path,
+            )
         )
 
     def _connect(self) -> sqlite3.Connection:
@@ -1578,6 +1589,155 @@ class MarketRegimeContext:
         }
 
     # =========================================================
+    # GEX PROFILE CONTEXT
+    # =========================================================
+
+    def _build_gex_profile_context(
+        self,
+        expiry_date: str,
+        timestamp: int,
+    ) -> dict:
+
+        try:
+
+            profile_timestamp = (
+                self.gex_profile_engine.get_latest_timestamp(
+                    expiry_date=expiry_date
+                )
+            )
+
+            if profile_timestamp is None:
+
+                return {
+                    "available": False,
+                    "timestamp": None,
+                    "timestamp_aligned": False,
+                    "expected_timestamp": timestamp,
+                    "error": (
+                        "No GEX profile timestamp found."
+                    ),
+                }
+
+            profile = (
+                self.gex_profile_engine.build_profile(
+                    expiry_date=expiry_date,
+                    top_n=10,
+                    atm_radius=self.GEX_ATM_WINDOW_RADIUS,
+                )
+            )
+
+        except (
+            ValueError,
+            KeyError,
+            TypeError,
+        ) as error:
+
+            return {
+                "available": False,
+                "timestamp": None,
+                "timestamp_aligned": False,
+                "error": str(error),
+            }
+
+        timestamp_aligned = (
+            int(profile_timestamp)
+            == int(timestamp)
+        )
+
+        if not timestamp_aligned:
+
+            return {
+                "available": False,
+                "timestamp": int(profile_timestamp),
+                "timestamp_aligned": False,
+                "expected_timestamp": int(timestamp),
+                "error": (
+                    "GEX profile timestamp does not "
+                    "match market context timestamp."
+                ),
+            }
+
+        return {
+            "available": True,
+
+            "timestamp": int(
+                profile_timestamp
+            ),
+
+            "timestamp_aligned": True,
+
+            "spot_price": profile.get(
+                "spot_price"
+            ),
+
+            "atm_strike": profile.get(
+                "atm_strike"
+            ),
+
+            "atm_distance_points": profile.get(
+                "atm_distance_points"
+            ),
+
+            "atm_radius": profile.get(
+                "atm_radius"
+            ),
+
+            "atm_window_min_strike": profile.get(
+                "atm_window_min_strike"
+            ),
+
+            "atm_window_max_strike": profile.get(
+                "atm_window_max_strike"
+            ),
+
+            "atm_window_call_gex": profile.get(
+                "atm_window_call_gex"
+            ),
+
+            "atm_window_put_gex": profile.get(
+                "atm_window_put_gex"
+            ),
+
+            "atm_window_gross_gex": profile.get(
+                "atm_window_gross_gex"
+            ),
+
+            "atm_window_net_gex": profile.get(
+                "atm_window_net_gex"
+            ),
+
+            "quality_summary": profile.get(
+                "quality_summary",
+                {},
+            ),
+
+            "zero_crossings": profile.get(
+                "zero_crossings",
+                [],
+            ),
+
+            "top_positive_net_gex": profile.get(
+                "top_positive_net_gex",
+                [],
+            ),
+
+            "top_negative_net_gex": profile.get(
+                "top_negative_net_gex",
+                [],
+            ),
+
+            "profile": profile.get(
+                "profile",
+                [],
+            ),
+
+            "summary": profile.get(
+                "summary",
+                {},
+            ),
+        }
+
+    # =========================================================
     # GEX DATA
     # =========================================================
 
@@ -3032,6 +3192,13 @@ class MarketRegimeContext:
             )
         )
 
+        gex_profile = (
+            self._build_gex_profile_context(
+                expiry_date=expiry_date,
+                timestamp=current_timestamp,
+            )
+        )
+
         # =====================================================
         # OPTIONS INTELLIGENCE
         # =====================================================
@@ -3292,6 +3459,10 @@ class MarketRegimeContext:
             ),
 
             "gex": gex,
+
+            "gex_profile": (
+                gex_profile
+            ),
 
             "gex_evolution": (
                 gex_evolution

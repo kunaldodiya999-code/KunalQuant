@@ -54,15 +54,16 @@ def group_attribution(
     economic = list(economic_rows)
     audits = list(audit_rows)
 
+    if len(economic) != len(audits):
+        raise ValueError("Economic and audit rows must have equal length.")
+
     by_strategy: dict[str, list[object]] = {}
     by_direction: dict[str, list[object]] = {}
+    exit_reason_rows: dict[str, list[object]] = {}
 
     for e, a in zip(economic, audits):
         by_strategy.setdefault(str(e.strategy_id), []).append(e)
         by_direction.setdefault(str(e.direction), []).append(e)
-
-    exit_reason_rows: dict[str, list[object]] = {}
-    for e, a in zip(economic, audits):
         exit_reason_rows.setdefault(str(a.final_exit_reason), []).append(e)
 
     return {
@@ -81,16 +82,15 @@ def calculate_max_drawdown(
 ) -> DrawdownMetrics:
     equity = float(starting_capital)
     peak = equity
-    trough = equity
     max_dd = 0.0
     max_dd_pct = 0.0
+    drawdown_trough = equity
 
     for row in economic_rows:
         equity += float(row.net_pnl)
+
         if equity > peak:
             peak = equity
-        if equity < trough:
-            trough = equity
 
         dd = peak - equity
         dd_pct = (dd / peak * 100.0) if peak else 0.0
@@ -98,10 +98,11 @@ def calculate_max_drawdown(
         if dd > max_dd:
             max_dd = dd
             max_dd_pct = dd_pct
+            drawdown_trough = equity
 
     return DrawdownMetrics(
         max_drawdown=max_dd,
         max_drawdown_pct=max_dd_pct,
         peak_equity=peak,
-        trough_equity=trough,
+        trough_equity=drawdown_trough,
     )

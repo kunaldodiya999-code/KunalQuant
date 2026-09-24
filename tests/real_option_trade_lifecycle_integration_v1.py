@@ -52,6 +52,11 @@ from backtest.trade_audit import (
     calculate_audit_totals,
     find_unbalanced_trades,
 )
+from backtest.economic_accounting import (
+    DEFAULT_ECONOMIC_MODEL,
+    calculate_economic_trade,
+    calculate_economic_totals,
+)
 from backtest.position_lifecycle import (
     ActivePosition,
     PositionLifecycleConfig,
@@ -930,6 +935,42 @@ def main() -> None:
     assert abs(audit_totals.gross_pnl - total_pnl) < 1e-9, (
         "Audit gross P&L does not match integration gross P&L."
     )
+
+    # ---------------------------------------------------------------
+    # ECONOMIC ACCOUNTING
+    # ---------------------------------------------------------------
+
+    economic_summaries = [
+        calculate_economic_trade(
+            summary,
+            model=DEFAULT_ECONOMIC_MODEL,
+        )
+        for summary in audit_summaries
+    ]
+    economic_totals = calculate_economic_totals(
+        economic_summaries
+    )
+
+    print()
+    print("ECONOMIC ACCOUNTING")
+    print("-" * 110)
+    print(f"Gross P&L         : ₹{economic_totals.gross_pnl:,.2f}")
+    print(f"Slippage cost     : ₹{economic_totals.slippage_cost:,.2f}")
+    print(f"Fixed charges     : ₹{economic_totals.fixed_charges:,.2f}")
+    print(f"Total costs       : ₹{economic_totals.total_cost:,.2f}")
+    print(f"Net P&L           : ₹{economic_totals.net_pnl:,.2f}")
+
+    assert economic_totals.trades == audit_totals.trades
+    assert abs(
+        economic_totals.gross_pnl - audit_totals.gross_pnl
+    ) < 1e-9
+    assert abs(
+        economic_totals.net_pnl
+        - (
+            economic_totals.gross_pnl
+            - economic_totals.total_cost
+        )
+    ) < 1e-9
 
     print()
     print("STEP 5 — REAL OPTION LIFECYCLE")

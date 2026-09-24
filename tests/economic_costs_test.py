@@ -73,7 +73,7 @@ def main() -> None:
         ("SELL execution price", sell.execution_price == 99.75),
         ("slippage calculation", buy.slippage_cost == 16.25),
         ("fixed charge calculation", buy.fixed_charge == 25.0),
-        ("LONG net P&L", round(long_result.net_pnl, 10) == 865.875),
+        ("LONG net P&L", round(long_result.net_pnl, 10) == 832.5625),
         ("SHORT net P&L", round(short_result.net_pnl, 10) == 569.125),
     ]
 

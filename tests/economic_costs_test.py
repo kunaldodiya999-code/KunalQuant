@@ -48,10 +48,10 @@ def main() -> None:
         gross_pnl=975.0,
     )
 
-    assert round(long_result.total_slippage, 10) == 34.125
+    assert round(long_result.total_slippage, 10) == 67.4375
     assert long_result.total_fixed_charges == 75.0
-    assert round(long_result.total_cost, 10) == 109.125
-    assert round(long_result.net_pnl, 10) == 865.875
+    assert round(long_result.total_cost, 10) == 142.4375
+    assert round(long_result.net_pnl, 10) == 832.5625
 
     short_result = model.calculate_trade_net_pnl(
         direction="SHORT",

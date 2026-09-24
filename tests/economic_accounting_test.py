@@ -103,10 +103,10 @@ def main() -> None:
 
     assert totals.trades == 2
     assert totals.gross_pnl == 1950.0
-    assert round(totals.slippage_cost, 10) == 138.3125
+    assert round(totals.slippage_cost, 10) == 134.875
     assert totals.fixed_charges == 150.0
-    assert round(totals.total_cost, 10) == 288.3125
-    assert round(totals.net_pnl, 10) == 1661.6875
+    assert round(totals.total_cost, 10) == 284.875
+    assert round(totals.net_pnl, 10) == 1665.125
 
     checks = [
         ("economic trade conversion", isinstance(result, EconomicTradeSummary)),

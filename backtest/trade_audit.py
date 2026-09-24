@@ -32,6 +32,18 @@ class TradeRecordLike(Protocol):
 
 
 @dataclass(frozen=True)
+class TradeAuditExit:
+    exit_number: int
+    timestamp: int
+    quantity: int
+    price: float
+    pnl: float
+    reason: str
+    remaining_quantity: int
+    remaining_lots: int
+
+
+@dataclass(frozen=True)
 class TradeAuditSummary:
     trade_key: int
     strategy_id: str
@@ -49,6 +61,7 @@ class TradeAuditSummary:
     final_exit_reason: str
     first_exit_timestamp: int | None
     final_exit_timestamp: int | None
+    exits: tuple[TradeAuditExit, ...]
 
 
 @dataclass(frozen=True)
@@ -74,9 +87,7 @@ def summarize_trade(trade_record_group: dict) -> TradeAuditSummary:
     position = trade.position
     exits = list(trade_record_group["exits"])
 
-    entry_quantity = int(
-        getattr(position, "quantity")
-    )
+    entry_quantity = int(getattr(position, "quantity"))
 
     exit_quantity = sum(
         int(exit_event.quantity)
@@ -90,6 +101,22 @@ def summarize_trade(trade_record_group: dict) -> TradeAuditSummary:
 
     position_gross_pnl = float(
         getattr(position, "gross_pnl")
+    )
+
+    audit_exits = tuple(
+        TradeAuditExit(
+            exit_number=index,
+            timestamp=int(exit_event.timestamp),
+            quantity=int(exit_event.quantity),
+            price=float(getattr(exit_event, "price")),
+            pnl=float(exit_event.pnl),
+            reason=_value(exit_event.reason),
+            remaining_quantity=int(exit_event.remaining_quantity),
+            remaining_lots=int(
+                getattr(exit_event, "remaining_lots", 0)
+            ),
+        )
+        for index, exit_event in enumerate(exits, start=1)
     )
 
     partial_exit_count = sum(
@@ -128,6 +155,7 @@ def summarize_trade(trade_record_group: dict) -> TradeAuditSummary:
         final_exit_timestamp=(
             int(exits[-1].timestamp) if exits else None
         ),
+        exits=audit_exits,
     )
 
 

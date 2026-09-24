@@ -67,6 +67,7 @@ def make_trade() -> dict:
                 timestamp=100,
                 quantity=130,
                 pnl=520.0,
+                price=25.0,
                 reason="TARGET_3R",
                 remaining_quantity=195,
             ),
@@ -74,6 +75,7 @@ def make_trade() -> dict:
                 timestamp=110,
                 quantity=195,
                 pnl=260.0,
+                price=22.3333333333,
                 reason="KAMA_EXIT",
                 remaining_quantity=0,
             ),
@@ -96,6 +98,14 @@ def main() -> None:
     assert row.quantity_balanced is True
     assert row.pnl_balanced is True
     assert row.final_exit_reason == "KAMA_EXIT"
+    assert len(row.exits) == 2
+    assert row.exits[0].exit_number == 1
+    assert row.exits[0].quantity == 130
+    assert row.exits[0].price == 25.0
+    assert row.exits[0].reason == "TARGET_3R"
+    assert row.exits[1].exit_number == 2
+    assert row.exits[1].quantity == 195
+    assert row.exits[1].reason == "KAMA_EXIT"
 
     totals = calculate_audit_totals(summaries)
 

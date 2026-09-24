@@ -47,7 +47,12 @@ from backtest.option_trade_lifecycle import (
     OptionTradeLifecycleConfig,
     OptionTradePosition,
 )
-from backtest.trade_audit import (\n    build_trade_audit,\n    calculate_audit_totals,\n    find_unbalanced_trades,\n)\nfrom backtest.position_lifecycle import (
+from backtest.trade_audit import (
+    build_trade_audit,
+    calculate_audit_totals,
+    find_unbalanced_trades,
+)
+from backtest.position_lifecycle import (
     ActivePosition,
     PositionLifecycleConfig,
     SignalAction,

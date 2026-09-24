@@ -47,7 +47,7 @@ from backtest.option_trade_lifecycle import (
     OptionTradeLifecycleConfig,
     OptionTradePosition,
 )
-from backtest.position_lifecycle import (
+from backtest.trade_audit import (\n    build_trade_audit,\n    calculate_audit_totals,\n    find_unbalanced_trades,\n)\nfrom backtest.position_lifecycle import (
     ActivePosition,
     PositionLifecycleConfig,
     SignalAction,
@@ -891,6 +891,39 @@ def main() -> None:
     total_pnl = sum(
         trade["trade"].position.gross_pnl
         for trade in completed_trades
+    )
+
+    # ---------------------------------------------------------------
+    # TRADE ACCOUNTING AUDIT
+    # ---------------------------------------------------------------
+
+    audit_summaries = build_trade_audit(completed_trades)
+    audit_totals = calculate_audit_totals(audit_summaries)
+    unbalanced_trades = find_unbalanced_trades(audit_summaries)
+
+    print()
+    print("TRADE ACCOUNTING AUDIT")
+    print("-" * 110)
+    print(
+        f"Quantity-balanced : "
+        f"{audit_totals.balanced_quantity}/"
+        f"{audit_totals.trades}"
+    )
+    print(
+        f"P&L-balanced      : "
+        f"{audit_totals.balanced_pnl}/"
+        f"{audit_totals.trades}"
+    )
+    print(f"Exit events       : {audit_totals.total_exit_events}")
+    print(f"Partial exits     : {audit_totals.partial_exit_events}")
+    print(f"Audited gross P&L : ₹{audit_totals.gross_pnl:,.2f}")
+
+    assert not unbalanced_trades, (
+        "Trade accounting audit failed: "
+        f"{len(unbalanced_trades)} unbalanced trades."
+    )
+    assert abs(audit_totals.gross_pnl - total_pnl) < 1e-9, (
+        "Audit gross P&L does not match integration gross P&L."
     )
 
     print()

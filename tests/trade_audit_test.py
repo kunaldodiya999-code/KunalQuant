@@ -16,6 +16,7 @@ class Exit:
     timestamp: int
     quantity: int
     pnl: float
+    price: float
     reason: str
     remaining_quantity: int
 

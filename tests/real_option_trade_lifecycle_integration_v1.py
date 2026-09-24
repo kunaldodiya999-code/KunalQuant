@@ -57,6 +57,10 @@ from backtest.economic_accounting import (
     calculate_economic_trade,
     calculate_economic_totals,
 )
+from backtest.performance_attribution import (
+    calculate_max_drawdown,
+    group_attribution,
+)
 from backtest.position_lifecycle import (
     ActivePosition,
     PositionLifecycleConfig,
@@ -971,6 +975,61 @@ def main() -> None:
             - economic_totals.total_cost
         )
     ) < 1e-9
+
+    # ---------------------------------------------------------------
+    # PERFORMANCE ATTRIBUTION
+    # ---------------------------------------------------------------
+
+    attribution = group_attribution(
+        economic_rows=economic_summaries,
+        audit_rows=audit_summaries,
+    )
+
+    drawdown = calculate_max_drawdown(
+        starting_capital=INITIAL_CAPITAL,
+        economic_rows=economic_summaries,
+    )
+
+    print()
+    print("PERFORMANCE ATTRIBUTION")
+    print("-" * 110)
+
+    for group_name, title in (
+        ("strategy", "BY STRATEGY"),
+        ("direction", "BY DIRECTION"),
+        ("final_exit_reason", "BY FINAL EXIT REASON"),
+    ):
+        print()
+        print(title)
+        print(
+            f"{'Key':24s} {'Trades':>6s} {'Gross':>12s} "
+            f"{'Costs':>12s} {'Net':>12s} {'Win%':>8s} "
+            f"{'PF':>8s}"
+        )
+        for row in attribution[group_name]:
+            profit_factor = (
+                f"{row.profit_factor:.2f}"
+                if row.profit_factor is not None
+                else "N/A"
+            )
+            print(
+                f"{row.key:24s} "
+                f"{row.trades:6d} "
+                f"₹{row.gross_pnl:10,.2f} "
+                f"₹{row.total_cost:10,.2f} "
+                f"₹{row.net_pnl:10,.2f} "
+                f"{row.win_rate_pct:7.2f}% "
+                f"{profit_factor:>8s}"
+            )
+
+    print()
+    print("DRAWDOWN")
+    print("-" * 110)
+    print(f"Starting capital : ₹{INITIAL_CAPITAL:,.2f}")
+    print(f"Peak equity      : ₹{drawdown.peak_equity:,.2f}")
+    print(f"Max drawdown     : ₹{drawdown.max_drawdown:,.2f}")
+    print(f"Max drawdown %   : {drawdown.max_drawdown_pct:.2f}%")
+    print(f"DD trough equity : ₹{drawdown.trough_equity:,.2f}")
 
     print()
     print("STEP 5 — REAL OPTION LIFECYCLE")

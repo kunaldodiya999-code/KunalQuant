@@ -53,8 +53,9 @@ def main() -> None:
         economic_rows=economic,
     )
     assert dd.max_drawdown == 50
+    assert dd.max_drawdown_pct == (50 / 1100) * 100
     assert dd.peak_equity == 1100
-    assert dd.trough_equity == 1050
+    assert dd.trough_equity == 1075
 
     print("PASS | strategy attribution")
     print("PASS | direction attribution")

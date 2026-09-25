@@ -142,34 +142,38 @@ def _register_instrument(
         return int(row[0])
 
 
-def build_required_contracts() -> tuple[dict[str, set[tuple[int, str]]], int, int]:
+def build_required_contracts() -> tuple[dict[str, dict[tuple[int, str], tuple[str, str]]], int, int]:
     bars = load_complete_3m_bars()
     pipeline = run_ktmi_trigger_pipeline(bars, build_ktmi_config())
     resolver = OptionContractResolver(DATABASE_PATH)
 
-    required: dict[str, set[tuple[int, str]]] = defaultdict(set)
+    required: dict[str, dict[tuple[int, str], tuple[str, str]]] = defaultdict(dict)
     for event in pipeline.events:
         bar = bars[event.index]
         entry_date = datetime.fromtimestamp(bar.timestamp, tz=TZ).date()
         option_type = "CE" if event.direction.value == "LONG" else "PE"
         expiry = resolver.find_nearest_expiry(entry_date, option_type)
         strike = resolver.calculate_atm_strike(bar.close)
-        required[expiry.isoformat()].add((strike, option_type))
+        expiry_key = expiry.isoformat()
+        key = (strike, option_type)
+        event_date = entry_date.isoformat()
+        previous = required[expiry_key].get(key)
+        if previous is None:
+            required[expiry_key][key] = (event_date, event_date)
+        else:
+            required[expiry_key][key] = (
+                min(previous[0], event_date),
+                max(previous[1], event_date),
+            )
 
     return required, len(bars), len(pipeline.events)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Acquire targeted NIFTY option history.")
-    parser.add_argument("--from-date", default=None, help="Optional earliest event date YYYY-MM-DD.")
-    parser.add_argument("--to-date", default=None, help="Optional latest event date YYYY-MM-DD.")
-    args = parser.parse_args()
+    parser.parse_args()
 
     required, bar_count, event_count = build_required_contracts()
-    if args.from_date or args.to_date:
-        # The current sample loader is intentionally fixed; filtering belongs in a
-        # future general runner. Refuse silently misleading partial requests.
-        raise SystemExit("Date filtering is not implemented; run the bounded sample as configured.")
 
     client = FyersClient()
     discovered = _discover_required_symbols(client, required)
@@ -189,6 +193,7 @@ def main() -> None:
     for expiry, requirements in sorted(required.items()):
         for strike, option_type in sorted(requirements):
             key = (expiry, strike, option_type)
+            range_from, range_to = requirements[key]
             symbol = discovered.get(key)
             if symbol is None:
                 print(f"[MISS] {expiry} {strike} {option_type}")
@@ -201,8 +206,8 @@ def main() -> None:
 
             result = downloader.download_symbol(
                 symbol=symbol,
-                range_from=expiry,
-                range_to=expiry,
+                range_from=range_from,
+                range_to=range_to,
                 resolution="1",
                 mode="expired",
             )

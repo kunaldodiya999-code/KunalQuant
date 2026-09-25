@@ -8,6 +8,9 @@ from __future__ import annotations
 import json
 from api.fyers_client import FyersClient
 
+UNDERLYING_SYMBOL = "NSE:NIFTY50-INDEX"
+PROBE_EXPIRY = "2026-09-22"
+
 
 def main() -> None:
     client = FyersClient()
@@ -18,19 +21,19 @@ def main() -> None:
     print("READ-ONLY — no database changes")
     print()
 
-    print("EXPIRY DATES")
+    print(f"EXPIRY DATES: {UNDERLYING_SYMBOL}")
     response = client.expired_expiry_dates(
-        symbol="NIFTY",
+        symbol=UNDERLYING_SYMBOL,
         range_from="2026-08-01",
         range_to="2026-09-23",
     )
     print(json.dumps(response, indent=2, default=str))
 
     print()
-    print("CONTRACTS FOR 2026-09-22")
+    print(f"CONTRACTS FOR {PROBE_EXPIRY}: {UNDERLYING_SYMBOL}")
     response = client.expired_contracts(
-        symbol="NIFTY",
-        expiry_date="2026-09-22",
+        symbol=UNDERLYING_SYMBOL,
+        expiry_date=PROBE_EXPIRY,
     )
     print(json.dumps(response, indent=2, default=str))
 

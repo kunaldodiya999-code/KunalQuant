@@ -26,7 +26,7 @@ from downloader.historical import HistoricalDownloader
 
 TZ = ZoneInfo("Asia/Kolkata")
 UNDERLYING_SYMBOL = "NSE:NIFTY50-INDEX"
-OPTION_SYMBOL_RE = re.compile(r"^(?P<prefix>NSE:NIFTY)(?P<code>\d+)(?P<strike>\d{4,5})(?P<type>CE|PE)$")
+OPTION_SYMBOL_RE = re.compile(r"^(?P<prefix>NSE:NIFTY)(?P<body>\\d+)(?P<type>CE|PE)$")
 
 
 def _extract_symbols(value) -> set[str]:
@@ -45,10 +45,7 @@ def _extract_symbols(value) -> set[str]:
 
 
 def _strike_from_symbol(symbol: str) -> int | None:
-    match = OPTION_SYMBOL_RE.match(symbol)
-    if not match:
-        return None
-    return int(match.group("strike"))
+    match = OPTION_SYMBOL_RE.match(symbol)\n    if not match:\n        return None\n    body = match.group("body")\n    if len(body) < 4:\n        return None\n    for width in (5, 4):\n        if len(body) >= width:\n            return int(body[-width:])\n    return None
 
 
 def _option_type_from_symbol(symbol: str) -> str | None:
@@ -61,7 +58,7 @@ def _option_type_from_symbol(symbol: str) -> str | None:
 
 def _discover_required_symbols(
     client: FyersClient,
-    required_by_expiry: dict[str, set[tuple[int, str]]],
+    required_by_expiry: dict[str, dict[tuple[int, str], tuple[str, str]]],
 ) -> dict[tuple[str, int, str], str]:
     discovered: dict[tuple[str, int, str], str] = {}
     for expiry, requirements in sorted(required_by_expiry.items()):
@@ -193,7 +190,7 @@ def main() -> None:
     for expiry, requirements in sorted(required.items()):
         for strike, option_type in sorted(requirements):
             key = (expiry, strike, option_type)
-            range_from, range_to = requirements[key]
+            range_from, range_to = requirements[(strike, option_type)]
             symbol = discovered.get(key)
             if symbol is None:
                 print(f"[MISS] {expiry} {strike} {option_type}")

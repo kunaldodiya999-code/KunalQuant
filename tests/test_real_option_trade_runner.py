@@ -54,3 +54,37 @@ def test_option_loader_reads_real_data_contract(tmp_path: Path):
 
     assert candles[0].timestamp == 10
     assert candles[0].close == 10.5
+
+
+def test_runner_counts_resolver_lookup_as_data_miss():
+    from backtest.real_option_trade_runner import run_real_option_trades
+
+    class MissingResolver:
+        def resolve(self, **kwargs):
+            raise LookupError("contract unavailable")
+
+    class Loader:
+        def __call__(self, *args):
+            return []
+
+    bars = [BacktestBar(100, 100, 101, 99, 100)]
+    event = KTMITriggerEvent(
+        strategy_id=TriggerStrategyId.LONG_SHORT_SPEED,
+        direction=TriggerDirection.LONG,
+        previous_value=0.1,
+        current_value=0.2,
+        trigger_value=0.15,
+        index=0,
+        timestamp=100,
+    )
+
+    result = run_real_option_trades(
+        bars=bars,
+        events=[event],
+        resolver=MissingResolver(),
+        option_loader=Loader(),
+    )
+
+    assert result.trades == ()
+    assert result.unresolved_events == 1
+    assert result.no_entry_candle_events == 0

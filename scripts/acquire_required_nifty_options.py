@@ -30,7 +30,7 @@ OPTION_SYMBOL_RE = re.compile(r"^(?P<prefix>NSE:NIFTY)(?P<body>\d+)(?P<type>CE|P
 
 
 def _extract_symbols(value) -> set[str]:
-    """Extract FYERS NIFTY option symbols from the actual expired-contract response."""
+    """Extract FYERS NIFTY option symbols from supported response shapes."""
     if not isinstance(value, dict):
         return set()
 
@@ -38,17 +38,21 @@ def _extract_symbols(value) -> set[str]:
     if not isinstance(data, dict):
         return set()
 
-    contracts = data.get("contracts", {})
-    if not isinstance(contracts, dict):
-        return set()
+    candidates: list[object] = []
 
-    options = contracts.get("options", [])
-    if not isinstance(options, list):
-        return set()
+    legacy_symbols = data.get("symbols", [])
+    if isinstance(legacy_symbols, list):
+        candidates.extend(legacy_symbols)
+
+    contracts = data.get("contracts", {})
+    if isinstance(contracts, dict):
+        options = contracts.get("options", [])
+        if isinstance(options, list):
+            candidates.extend(options)
 
     return {
         symbol
-        for symbol in options
+        for symbol in candidates
         if isinstance(symbol, str)
         and symbol.startswith("NSE:NIFTY")
         and symbol.endswith(("CE", "PE"))

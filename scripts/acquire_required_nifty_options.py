@@ -30,18 +30,29 @@ OPTION_SYMBOL_RE = re.compile(r"^(?P<prefix>NSE:NIFTY)(?P<body>\d+)(?P<type>CE|P
 
 
 def _extract_symbols(value) -> set[str]:
-    """Recursively extract FYERS NIFTY option symbols from an API response."""
-    found: set[str] = set()
-    if isinstance(value, str):
-        if value.startswith("NSE:NIFTY") and value.endswith(("CE", "PE")):
-            found.add(value)
-    elif isinstance(value, dict):
-        for item in value.values():
-            found.update(_extract_symbols(item))
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            found.update(_extract_symbols(item))
-    return found
+    """Extract FYERS NIFTY option symbols from the actual expired-contract response."""
+    if not isinstance(value, dict):
+        return set()
+
+    data = value.get("data", {})
+    if not isinstance(data, dict):
+        return set()
+
+    contracts = data.get("contracts", {})
+    if not isinstance(contracts, dict):
+        return set()
+
+    options = contracts.get("options", [])
+    if not isinstance(options, list):
+        return set()
+
+    return {
+        symbol
+        for symbol in options
+        if isinstance(symbol, str)
+        and symbol.startswith("NSE:NIFTY")
+        and symbol.endswith(("CE", "PE"))
+    }
 
 
 def _strike_from_symbol(symbol: str) -> int | None:
@@ -69,21 +80,51 @@ def _discover_required_symbols(
     client: FyersClient,
     required_by_expiry: dict[str, dict[tuple[int, str], tuple[str, str]]],
 ) -> dict[tuple[str, int, str], str]:
+    """
+    Discover the exact FYERS option symbols required by the existing
+    resolver/event pipeline.
+
+    FYERS expired_contracts response structure is:
+
+        {
+            "data": {
+                "symbol": "NIFTY",
+                "expiry_date": "2026-09-22",
+                "contracts": {
+                    "futures": [],
+                    "options": [
+                        "NSE:NIFTY2692223250CE",
+                        "NSE:NIFTY2692223250PE",
+                        ...
+                    ]
+                }
+            }
+        }
+
+    This function only matches contracts already required by the
+    existing resolver/event pipeline.
+    """
     discovered: dict[tuple[str, int, str], str] = {}
+
     for expiry, requirements in sorted(required_by_expiry.items()):
         response = client.expired_contracts(
             symbol=UNDERLYING_SYMBOL,
             expiry_date=expiry,
         )
         symbols = _extract_symbols(response)
+
         for symbol in symbols:
             strike = _strike_from_symbol(symbol)
             option_type = _option_type_from_symbol(symbol)
+
             if strike is None or option_type is None:
                 continue
+
             key = (expiry, strike, option_type)
+
             if key in requirements:
                 discovered[key] = symbol
+
     return discovered
 
 
@@ -102,7 +143,6 @@ def _register_instrument(
         if row:
             return int(row[0])
 
-        # Reuse metadata from any existing NIFTY option instrument where possible.
         template = db.execute(
             """
             SELECT exchange, segment, lot_size, tick_size, currency

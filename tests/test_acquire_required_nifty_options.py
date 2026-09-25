@@ -22,3 +22,9 @@ def test_extract_symbols_and_parse_contract():
 
 def test_extract_symbols_ignores_non_option_values():
     assert _extract_symbols({"data": {"symbols": ["NSE:NIFTY50-INDEX", "x"]}}) == set()
+
+
+def test_fyers_encoded_symbol_strike_parsing():
+    assert _strike_from_symbol("NSE:NIFTY2692223250CE") == 23250
+    assert _strike_from_symbol("NSE:NIFTY2692223250PE") == 23250
+    assert _strike_from_symbol("NSE:NIFTY2692229100CE") == 29100

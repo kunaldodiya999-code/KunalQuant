@@ -19,6 +19,10 @@ def candles_for(start: str, count: int) -> list[Candle]:
     ]
 
 
+def full_session() -> list[Candle]:
+    return candles_for("2026-09-23T09:15:00", 375)
+
+
 def test_complete_3m_bar():
     bars = aggregate_day(candles_for("2026-09-23T09:15:00", 3), 3)
     assert len(bars) == 1
@@ -48,16 +52,17 @@ def test_five_minute_complete_bar():
 
 
 def test_four_minute_gap_excludes_day():
-    candles = candles_for("2026-09-23T09:15:00", 10)
-    del candles[0:4]
+    candles = full_session()
+    del candles[100:104]
     bars = aggregate_regular_session(candles, 3)
     assert bars == []
 
 
 def test_three_minute_gap_keeps_day_without_fabrication():
-    candles = candles_for("2026-09-23T09:15:00", 10)
-    del candles[0:3]
+    candles = full_session()
+    del candles[100:103]
     bars = aggregate_regular_session(candles, 5)
     assert bars
-    assert all(not b.complete for b in bars[:1])
-    assert all(b.actual_1m_candles <= 5 for b in bars)
+    incomplete = [bar for bar in bars if not bar.complete]
+    assert incomplete
+    assert incomplete[0].actual_1m_candles == 2

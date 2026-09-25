@@ -108,29 +108,24 @@ def run_real_option_trades(
         if index < 0 or index >= len(bars):
             raise ValueError(f"event index {index} is outside supplied bars")
 
-        entry_candidates = resolve_option_entries(
-            bars=bars,
-            events=[event],
-            resolver=resolver,
-            option_candle_loader=option_loader,
-            active_positions=active_positions,
-        )
+        try:
+            entry_candidates = resolve_option_entries(
+                bars=bars,
+                events=[event],
+                resolver=resolver,
+                option_candle_loader=option_loader,
+                active_positions=active_positions,
+            )
+        except LookupError:
+            # Resolver V2 is intentionally strict. A missing exact contract
+            # is a historical-data coverage miss, not a fatal backtest error.
+            unresolved_events += 1
+            continue
 
         if not entry_candidates:
-            # Resolve separately only to distinguish resolver/candle/lifecycle
-            # misses without changing the entry bridge behavior.
-            try:
-                resolver.resolve(
-                    underlying_price=bars[index].close,
-                    entry_date=datetime.fromtimestamp(
-                        bars[index].timestamp, tz=TIMEZONE
-                    ).date(),
-                    direction=event.direction.value,
-                )
-            except LookupError:
-                unresolved_events += 1
-            else:
-                no_entry_candle_events += 1
+            # No accepted entry means either lifecycle rejection or no
+            # strictly-later option candle. Keep this as a separate metric.
+            no_entry_candle_events += 1
             continue
 
         entry = entry_candidates[0]

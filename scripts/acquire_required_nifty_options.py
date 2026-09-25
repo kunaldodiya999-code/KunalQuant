@@ -45,7 +45,16 @@ def _extract_symbols(value) -> set[str]:
 
 
 def _strike_from_symbol(symbol: str) -> int | None:
-    match = OPTION_SYMBOL_RE.match(symbol)\n    if not match:\n        return None\n    body = match.group("body")\n    if len(body) < 4:\n        return None\n    for width in (5, 4):\n        if len(body) >= width:\n            return int(body[-width:])\n    return None
+    match = OPTION_SYMBOL_RE.match(symbol)
+    if not match:
+        return None
+    body = match.group("body")
+    if len(body) < 4:
+        return None
+    for width in (5, 4):
+        if len(body) >= width:
+            return int(body[-width:])
+    return None
 
 
 def _option_type_from_symbol(symbol: str) -> str | None:

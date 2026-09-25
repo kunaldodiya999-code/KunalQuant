@@ -35,7 +35,7 @@ def test_complete_3m_bar():
 
 
 def test_missing_minute_is_incomplete_not_filled():
-    candles = candles_for("2026-09-23T09:15:00", 5)
+    candles = candles_for("2026-09-23T09:15:00", 6)
     candles.pop(1)
     bars = aggregate_day(candles, 3)
     assert len(bars) == 2

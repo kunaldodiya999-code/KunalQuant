@@ -26,7 +26,7 @@ from downloader.historical import HistoricalDownloader
 
 TZ = ZoneInfo("Asia/Kolkata")
 UNDERLYING_SYMBOL = "NSE:NIFTY50-INDEX"
-OPTION_SYMBOL_RE = re.compile(r"^(?P<prefix>NSE:NIFTY)(?P<body>\\d+)(?P<type>CE|PE)$")
+OPTION_SYMBOL_RE = re.compile(r"^(?P<prefix>NSE:NIFTY)(?P<body>\d+)(?P<type>CE|PE)$")
 
 
 def _extract_symbols(value) -> set[str]:

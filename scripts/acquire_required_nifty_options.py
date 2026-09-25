@@ -124,10 +124,10 @@ def _discover_required_symbols(
             if strike is None or option_type is None:
                 continue
 
-            key = (expiry, strike, option_type)
+            requirement_key = (strike, option_type)
 
-            if key in requirements:
-                discovered[key] = symbol
+            if requirement_key in requirements:
+                discovered[(expiry, strike, option_type)] = symbol
 
     return discovered
 

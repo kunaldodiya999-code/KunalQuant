@@ -39,13 +39,14 @@ def main():
     manifest=[]; missing=[]; option_keys=set(); future_keys=set(); index_days=set()
     for r in rows:
         dt=datetime.fromtimestamp(int(r["timestamp"]),timezone.utc).astimezone(tz)
-        trade_date=dt.strftime("%Y-%m-%d"); index_days.add(trade_date)
+        trade_date=dt.strftime("%Y-%m-%d")
+        if trade_date not in index_days:
+            index_days.add(trade_date)
+            manifest.append({"kind":"INDEX","trade_date":trade_date,"timestamp":r["timestamp"],
+                             "symbol":"NSE:NIFTY50-INDEX","expiry_date":""})
         expiry=nearest_expiry(c,trade_date)
         if not expiry:
             missing.append({"timestamp":r["timestamp"],"reason":"NO_EXPIRY","trade_date":trade_date}); continue
-        if trade_date not in index_days:
-            manifest.append({"kind":"INDEX","trade_date":trade_date,"timestamp":r["timestamp"],
-                             "symbol":"NSE:NIFTY50-INDEX","expiry_date":""})
         a=atm(r["close"]); fut=future_symbol(c,trade_date)
         if fut and fut["symbol"] not in future_keys:
             future_keys.add(fut["symbol"]); manifest.append({"kind":"FUTURES","trade_date":trade_date,

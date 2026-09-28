@@ -7,6 +7,7 @@ from research.hft_gap_open_v1 import (
 
 def test_defaults_are_configurable_and_disabled():
     assert hft_strategy.HFT_GAP_OPEN_ENABLED_DEFAULT is False
+    assert hft_strategy.HFT_UNDERLYING_MODE == "NIFTY_FUTURES"
     assert hft_strategy.GAP_THRESHOLD_POINTS == 50.0
     assert hft_strategy.INITIAL_SL_MAX_POINTS == 20.0
     assert hft_strategy.CAPITAL_PER_LOT == 10_000.0

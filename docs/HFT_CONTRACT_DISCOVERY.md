@@ -29,3 +29,11 @@ Do not bulk-download until the one-day manifest shows:
 - 1 futures row
 - 1 index row
 - missing_rows == 0
+
+## Manifest gate
+
+After building the manifest, run:
+
+python scripts/validate_hft_manifest.py --manifest data/reports/hft_10s_manifest.csv
+
+The validator requires exactly 12 option rows per trading day, one futures row, and one NIFTY index row. Bulk acquisition should not begin if the validator returns valid=false.

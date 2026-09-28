@@ -36,6 +36,10 @@ class EntryDecision:
     risk_points: float | None
 
 def opening_gap(previous_close: float, current_open: float) -> float:
+    """Opening gap for the configured HFT underlying.
+
+    Current build supplies NIFTY futures previous close/open values.
+    """
     return float(current_open) - float(previous_close)
 
 def gap_signal(previous_close: float, current_open: float) -> GapSignal | None:

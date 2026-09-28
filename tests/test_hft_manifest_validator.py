@@ -18,4 +18,6 @@ def test_manifest_validator_accepts_exact_day(tmp_path: Path):
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
-    assert validate(str(path))["valid"]
+    result = validate(str(path))
+    assert result["valid"]
+    assert result["errors"] == 0

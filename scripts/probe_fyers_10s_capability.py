@@ -87,6 +87,8 @@ def main() -> None:
     )
     parser.add_argument("--option-symbol", required=True)
     parser.add_argument("--futures-symbol", required=True)
+    parser.add_argument("--index-symbol", default="NSE:NIFTY50-INDEX")
+    parser.add_argument("--resolutions", default="5S,10S,15S,30S")
     parser.add_argument("--from", dest="range_from", required=True)
     parser.add_argument("--to", dest="range_to", required=True)
     parser.add_argument(
@@ -119,35 +121,54 @@ def main() -> None:
 
     client = FyersClient()
 
-    results = [
-        _probe(
-            client,
-            name="NIFTY_INDEX",
-            symbol="NSE:NIFTY50-INDEX",
-            mode="standard",
-            range_from=range_from,
-            range_to=range_to,
-        ),
-        _probe(
-            client,
-            name="NIFTY_FUTURES",
-            symbol=args.futures_symbol,
-            mode="expired",
-            range_from=range_from,
-            range_to=range_to,
-        ),
-        _probe(
-            client,
-            name="NIFTY_OPTION",
-            symbol=args.option_symbol,
-            mode="expired",
-            range_from=range_from,
-            range_to=range_to,
-        ),
-    ]
+    resolutions = [x.strip() for x in args.resolutions.split(",") if x.strip()]
+    results = []
+    for resolution in resolutions:
+        try:
+            response = client.history(
+                symbol=args.index_symbol,
+                resolution=resolution,
+                range_from=range_from,
+                range_to=range_to,
+                date_format="1",
+                cont_flag="0",
+            )
+            candles = response.get("candles") or []
+            results.append({
+                "name": "NIFTY_INDEX",
+                "symbol": args.index_symbol,
+                "mode": "standard",
+                "resolution": resolution,
+                "range_from": range_from,
+                "range_to": range_to,
+                "status": response.get("s"),
+                "candles": len(candles),
+                "first_timestamp": candles[0][0] if candles else None,
+                "last_timestamp": candles[-1][0] if candles else None,
+                "response_keys": sorted(response.keys()),
+            })
+        except Exception as exc:
+            results.append({
+                "name": "NIFTY_INDEX",
+                "symbol": args.index_symbol,
+                "mode": "standard",
+                "resolution": resolution,
+                "range_from": range_from,
+                "range_to": range_to,
+                "status": "ERROR",
+                "error": str(exc),
+            })
+    results.extend([
+        _probe(client, name="NIFTY_FUTURES", symbol=args.futures_symbol,
+               mode="expired", range_from=range_from, range_to=range_to),
+        _probe(client, name="NIFTY_OPTION", symbol=args.option_symbol,
+               mode="expired", range_from=range_from, range_to=range_to),
+    ])
 
     report = {
-        "resolution": "10S",
+        "target_resolution": "10S",
+        "index_symbol": args.index_symbol,
+        "tested_resolutions": resolutions,
         "fyers_source_resolution": "5S",
         "range_from": range_from,
         "range_to": range_to,

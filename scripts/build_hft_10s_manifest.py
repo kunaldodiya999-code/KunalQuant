@@ -36,7 +36,7 @@ def main():
       WHERE i.broker='FYERS' AND i.symbol='NSE:NIFTY50-INDEX' AND candles.resolution='1'
       AND timestamp BETWEEN strftime('%s',?) AND strftime('%s',?) ORDER BY timestamp""",
       (args.start+" 00:00:00",args.end+" 23:59:59")).fetchall()
-    manifest=[]; missing=[]; option_keys=set(); future_keys=set(); index_days=set()
+    manifest=[]; missing=[]; option_keys=set(); future_keys=set(); future_days=set(); index_days=set()
     for r in rows:
         dt=datetime.fromtimestamp(int(r["timestamp"]),timezone.utc).astimezone(tz)
         trade_date=dt.strftime("%Y-%m-%d")
@@ -48,8 +48,8 @@ def main():
         if not expiry:
             missing.append({"timestamp":r["timestamp"],"reason":"NO_EXPIRY","trade_date":trade_date}); continue
         a=atm(r["close"]); fut=future_symbol(c,trade_date)
-        if fut and fut["symbol"] not in future_keys:
-            future_keys.add(fut["symbol"]); manifest.append({"kind":"FUTURES","trade_date":trade_date,
+        if fut and (fut["symbol"],trade_date) not in future_days:
+            future_days.add((fut["symbol"],trade_date)); future_keys.add(fut["symbol"]); manifest.append({"kind":"FUTURES","trade_date":trade_date,
                 "timestamp":r["timestamp"],"symbol":fut["symbol"],"expiry_date":fut["expiry_date"]})
         elif not fut: missing.append({"timestamp":r["timestamp"],"reason":"NO_FUTURES","trade_date":trade_date})
         for off in HFT_STRIKE_OFFSETS:

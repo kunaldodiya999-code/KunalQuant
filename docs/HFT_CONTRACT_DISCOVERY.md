@@ -37,3 +37,16 @@ After building the manifest, run:
 python scripts/validate_hft_manifest.py --manifest data/reports/hft_10s_manifest.csv
 
 The validator requires exactly 12 option rows per trading day, one futures row, and one NIFTY index row. Bulk acquisition should not begin if the validator returns valid=false.
+
+## One-command sample workflow
+
+For a one-day gate:
+
+python scripts/run_hft_10s_sample.py --from 2026-08-21 --to 2026-08-21
+
+That builds and validates the manifest, then performs a downloader dry-run.
+After the manifest is valid, use --run to fetch the real FYERS 5S data and derive 10S candles:
+
+python scripts/run_hft_10s_sample.py --from 2026-08-21 --to 2026-08-21 --run
+
+Do not increase the date range until this one-day sample is clean.

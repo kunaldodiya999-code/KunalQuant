@@ -34,7 +34,7 @@ def _probe(
         if mode == "standard":
             response = client.history(
                 symbol=symbol,
-                resolution="10",
+                resolution="10S",
                 range_from=range_from,
                 range_to=range_to,
                 date_format="1",
@@ -43,7 +43,7 @@ def _probe(
         elif mode == "expired":
             response = client.expired_history(
                 symbol=symbol,
-                resolution="10",
+                resolution="10S",
                 range_from=range_from,
                 range_to=range_to,
                 include_oi="1",
@@ -147,7 +147,7 @@ def main() -> None:
     ]
 
     report = {
-        "resolution": "10",
+        "resolution": "10S",
         "range_from": range_from,
         "range_to": range_to,
         "results": results,

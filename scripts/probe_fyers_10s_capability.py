@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-"""Probe FYERS 10-second historical-data availability.
+"""Probe FYERS 5-second source availability for locally derived 10-second data.
 
 This is intentionally a small, read-only diagnostic. It does not write
 candles to the Kunal Quant database and does not modify any strategy.
@@ -34,7 +34,7 @@ def _probe(
         if mode == "standard":
             response = client.history(
                 symbol=symbol,
-                resolution="10S",
+                resolution="5S",
                 range_from=range_from,
                 range_to=range_to,
                 date_format="1",
@@ -148,6 +148,7 @@ def main() -> None:
 
     report = {
         "resolution": "10S",
+        "fy​​ers_source_resolution": "5S",
         "range_from": range_from,
         "range_to": range_to,
         "results": results,

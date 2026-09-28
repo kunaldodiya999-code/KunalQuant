@@ -13,7 +13,7 @@ This avoids assuming a fixed weekly-expiry calendar across all history.
 """
 from __future__ import annotations
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 from api.fyers_client import FyersClient
 
@@ -28,23 +28,50 @@ def _date_chunks(start: date, end: date, days: int = 365):
         current = chunk_end + timedelta(days=1)
 
 def _parse_expiry_value(value) -> date | None:
-    if isinstance(value, str):
+    # FYERS may expose expiry as ISO text, epoch seconds, or nested metadata.
+    if isinstance(value, (int, float)) and value > 0:
         try:
-            return date.fromisoformat(value.strip())
-        except ValueError:
+            return datetime.fromtimestamp(float(value), tz=timezone.utc).date()
+        except (OverflowError, OSError, ValueError):
             return None
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            pass
+        if text.isdigit():
+            try:
+                return datetime.fromtimestamp(int(text), tz=timezone.utc).date()
+            except (OverflowError, OSError, ValueError):
+                return None
+        return None
     if isinstance(value, dict):
-        for key in ("expiry_date", "expiryDate", "expiry", "date"):
+        for key in ("expiry_date", "expiryDate", "expiry", "date", "expiryDateEpoch"):
             parsed = _parse_expiry_value(value.get(key))
             if parsed:
                 return parsed
     return None
 
+def _iter_expiry_values(value):
+    if isinstance(value, dict):
+        for nested in value.values():
+            yield from _iter_expiry_values(nested)
+    elif isinstance(value, (list, tuple, set)):
+        for nested in value:
+            yield from _iter_expiry_values(nested)
+    else:
+        yield value
+
 def extract_expiry_dates(response: dict, contract_type: str) -> set[date]:
     data = response.get("data") or {}
     expiry_dates = data.get("expiry_dates") or {}
     values = expiry_dates.get(contract_type) or []
-    return {parsed for value in values if (parsed := _parse_expiry_value(value))}
+    return {
+        parsed
+        for value in _iter_expiry_values(values)
+        if (parsed := _parse_expiry_value(value))
+    }
 
 def discover_expiry_dates(client: FyersClient, start: date, end: date) -> tuple[set[date], set[date]]:
     futures: set[date] = set()

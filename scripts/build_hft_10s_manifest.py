@@ -43,7 +43,7 @@ def main():
         expiry=nearest_expiry(c,trade_date)
         if not expiry:
             missing.append({"timestamp":r["timestamp"],"reason":"NO_EXPIRY","trade_date":trade_date}); continue
-        if trade_date not in {x["trade_date"] for x in manifest if x["kind"]=="INDEX"}:
+        if trade_date not in index_days:
             manifest.append({"kind":"INDEX","trade_date":trade_date,"timestamp":r["timestamp"],
                              "symbol":"NSE:NIFTY50-INDEX","expiry_date":""})
         a=atm(r["close"]); fut=future_symbol(c,trade_date)

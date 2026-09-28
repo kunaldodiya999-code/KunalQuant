@@ -43,7 +43,7 @@ def _probe(
         elif mode == "expired":
             response = client.expired_history(
                 symbol=symbol,
-                resolution="10S",
+                resolution="5S",
                 range_from=range_from,
                 range_to=range_to,
                 include_oi="1",
@@ -83,7 +83,7 @@ def _probe(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Probe FYERS 10-second historical data availability."
+        description="Probe FYERS 5S source for locally derived 10S data."
     )
     parser.add_argument("--option-symbol", required=True)
     parser.add_argument("--futures-symbol", required=True)
@@ -148,14 +148,14 @@ def main() -> None:
 
     report = {
         "resolution": "10S",
-        "fy​​ers_source_resolution": "5S",
+        "fyers_source_resolution": "5S",
         "range_from": range_from,
         "range_to": range_to,
         "results": results,
     }
 
     print("=" * 88)
-    print("KUNAL QUANT — FYERS 10-SECOND HISTORICAL CAPABILITY PROBE")
+    print("KUNAL QUANT — FYERS 5S SOURCE / 10S DERIVATION PROBE")
     print("=" * 88)
     print(json.dumps(report, indent=2))
 

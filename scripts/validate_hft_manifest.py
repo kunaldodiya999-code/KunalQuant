@@ -16,7 +16,7 @@ def validate(path: str) -> dict:
         futures = [r for r in day_rows if r["kind"] == "FUTURES"]
         index = [r for r in day_rows if r["kind"] == "INDEX"]
         option_keys = {(r["strike"], r["option_type"]) for r in options}
-        expected = {(str(int(r["atm_strike"]) + offset), typ)
+        expected = {(str(int(day_rows[0]["atm_strike"]) + offset), typ)
                     for offset in (0, 50, 100, 150, 200, 250)
                     for typ in ("CE", "PE")}
         if len(options) != 12 or option_keys != expected:

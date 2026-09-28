@@ -16,7 +16,7 @@ Status: IMPLEMENTED DATA LAYER — bulk acquisition remains explicitly gated.
 3. Resolve real registered FYERS contracts from the instrument master.
 4. Download only symbol/date pairs present in the manifest.
 5. Store raw broker responses separately under data/raw/historical_hft_10s.
-6. Store canonical candles with resolution="10" and source="FYERS_HFT_HISTORY".
+6. Store canonical candles with resolution="10S" and source="FYERS_HFT_HISTORY".
 7. Validate every requested symbol/date pair.
 
 ## Important semantics

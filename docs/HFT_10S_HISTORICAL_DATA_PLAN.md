@@ -93,7 +93,7 @@ changing the candle model.
 
 10-second HFT records will use:
 
-- resolution = "10"
+- resolution = "10S"
 - source = "FYERS_HFT_HISTORY"
 
 The existing 1-minute FYERS historical dataset remains untouched.

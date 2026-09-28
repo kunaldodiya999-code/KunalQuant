@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from api.fyers_client import FyersClient
-from config.hft_data import HFT_RESOLUTION, HFT_SOURCE
+from config.hft_data import HFT_RESOLUTION, HFT_FETCH_RESOLUTION, HFT_SOURCE
 from config.settings import DATABASE_PATH, RAW_DATA_DIR
 
 class HFTDownloader:
@@ -22,7 +22,7 @@ class HFTDownloader:
         for attempt in range(1,self.attempts+1):
             try:
                 if mode=="standard":
-                    response=self.client.history(symbol=symbol,resolution=HFT_RESOLUTION,
+                    response=self.client.history(symbol=symbol,resolution=HFT_FETCH_RESOLUTION,
                         range_from=day,range_to=day,date_format="1",cont_flag="0")
                 else:
                     response=self.client.expired_history(symbol=symbol,resolution=HFT_RESOLUTION,
@@ -34,22 +34,29 @@ class HFTDownloader:
         candles=response.get("candles") or []
         safe=symbol.replace(":","_").replace("/","_")
         rp=self.raw/safe; rp.mkdir(parents=True,exist_ok=True)
-        raw=rp/f"{day}_{HFT_RESOLUTION}_{HFT_SOURCE}.json"
+        raw=rp/f"{day}_{HFT_FETCH_RESOLUTION}_{HFT_SOURCE}.json"
         raw.write_text(json.dumps(response,indent=2,default=str),encoding="utf-8")
         with self.connect() as c:
             iid=self.instrument_id(c,symbol)
-            inserted=0; dup=0
+            # FYERS historical API supports 5S, not 10S. Build complete 10S candles locally.
+            buckets=defaultdict(list)
             for x in candles:
                 if len(x)<6: continue
-                vals=(iid,int(float(x[0])),float(x[1]),float(x[2]),float(x[3]),float(x[4]),
-                      int(float(x[5])) if x[5] is not None else None,
-                      int(float(x[6])) if len(x)>=7 and x[6] is not None else None,
-                      HFT_RESOLUTION,HFT_SOURCE)
-                cur=c.execute("""
-                  INSERT OR IGNORE INTO candles
-                  (instrument_id,timestamp,open,high,low,close,volume,open_interest,resolution,source)
-                  VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,vals)
+                ts=int(float(x[0])); buckets[ts-(ts % 10)].append(x)
+            derived=[]
+            for bucket, xs in sorted(buckets.items()):
+                xs=sorted(xs,key=lambda z:int(float(z[0])))
+                if len(xs) < 2: continue
+                derived.append((bucket,float(xs[0][1]),max(float(z[2]) for z in xs),
+                    min(float(z[3]) for z in xs),float(xs[-1][4]),
+                    sum(float(z[5]) for z in xs if z[5] is not None),
+                    int(float(xs[-1][6])) if len(xs[-1])>=7 and xs[-1][6] is not None else None))
+            inserted=0; dup=0
+            for ts,o,h,l,cl,vol,oi in derived:
+                vals=(iid,int(ts),o,h,l,cl,int(vol),oi,HFT_RESOLUTION,HFT_SOURCE)
+                cur=c.execute("INSERT OR IGNORE INTO candles"
+                  "(instrument_id,timestamp,open,high,low,close,volume,open_interest,resolution,source)"
+                  " VALUES (?,?,?,?,?,?,?,?,?,?)",vals)
                 if cur.rowcount: inserted+=1
                 else: dup+=1
             c.commit()
@@ -67,7 +74,7 @@ class HFTDownloader:
         return results
 
 def main():
-    p=argparse.ArgumentParser(description="Targeted FYERS 10s HFT downloader. Defaults to dry-run.")
+    p=argparse.ArgumentParser(description="Targeted FYERS 5S download with local 10S derivation. Defaults to dry-run.")
     p.add_argument("--manifest",required=True); p.add_argument("--run",action="store_true")
     p.add_argument("--limit",type=int); p.add_argument("--json",default="data/reports/hft_10s_download.json")
     args=p.parse_args()

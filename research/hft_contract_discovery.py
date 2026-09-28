@@ -76,7 +76,10 @@ def extract_expiry_dates(response: dict, contract_type: str) -> set[date]:
 def discover_expiry_dates(client: FyersClient, start: date, end: date) -> tuple[set[date], set[date]]:
     futures: set[date] = set()
     options: set[date] = set()
-    for chunk_start, chunk_end in _date_chunks(start, end):
+    # range_to must include the future expiry after the trade date; a one-day
+    # request ending on the trade date can legitimately return no expiry.
+    query_end = end + timedelta(days=45)
+    for chunk_start, chunk_end in _date_chunks(start, query_end):
         response = client.expired_expiry_dates(
             symbol=UNDERLYING_SYMBOL,
             range_from=chunk_start.isoformat(),

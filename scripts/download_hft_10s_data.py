@@ -25,7 +25,7 @@ class HFTDownloader:
                     response=self.client.history(symbol=symbol,resolution=HFT_FETCH_RESOLUTION,
                         range_from=day,range_to=day,date_format="1",cont_flag="0")
                 else:
-                    response=self.client.expired_history(symbol=symbol,resolution=HFT_RESOLUTION,
+                    response=self.client.expired_history(symbol=symbol,resolution=HFT_FETCH_RESOLUTION,
                         range_from=day,range_to=day,include_oi="1",include_greeks="1",date_format="1")
                 break
             except Exception as e:

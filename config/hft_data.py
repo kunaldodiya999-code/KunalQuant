@@ -1,4 +1,3 @@
-
 """Kunal Quant HFT historical-data configuration.
 
 This module is intentionally isolated from the locked strategy and
@@ -17,6 +16,11 @@ HFT_STRIKE_OFFSETS = (0, 50, 100, 150, 200, 250)
 
 HFT_OPTION_TYPES = ("CE", "PE")
 
+# FYERS does not currently return historical seconds candles for the
+# NIFTY spot-index History API route tested by the project. For the HFT
+# price path, use the actual historical NIFTY futures contract instead.
+# The spot index remains available as reference metadata in the manifest.
+HFT_UNDERLYING_MODE = "NIFTY_FUTURES"
 HFT_UNDERLYING_SYMBOL = "NSE:NIFTY50-INDEX"
 
 # NIFTY futures are stored as their actual historical contracts. The
@@ -24,12 +28,10 @@ HFT_UNDERLYING_SYMBOL = "NSE:NIFTY50-INDEX"
 HFT_FUTURES_UNDERLYING = "NIFTY"
 
 # The acquisition planner uses the maximum period that the FYERS API
-# actually returns for 10-second candles. It must never silently invent
+# actually returns for 5-second F&O candles. It must never silently invent
 # a retention period.
 HFT_MAX_LOOKBACK_DAYS = None
 
-# Keep a distinct source label available for downstream HFT loaders and
-# audits while retaining the canonical FYERS storage model.
 HFT_SOURCE = "FYERS_HFT_HISTORY"
 
 # Research mode only: no existing strategy is enabled by this config.

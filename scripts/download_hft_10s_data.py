@@ -32,6 +32,9 @@ class HFTDownloader:
                 if attempt==self.attempts: return {"symbol":symbol,"day":day,"status":"FAILED","error":str(e)}
                 time.sleep(self.delay*attempt)
         candles=response.get("candles") or []
+        if not candles:
+            return {"symbol": symbol, "day": day, "status": "NO_DATA",
+                    "received": 0, "inserted": 0, "duplicates": 0}
         safe=symbol.replace(":","_").replace("/","_")
         rp=self.raw/safe; rp.mkdir(parents=True,exist_ok=True)
         raw=rp/f"{day}_{HFT_FETCH_RESOLUTION}_{HFT_SOURCE}.json"
@@ -83,6 +86,7 @@ def main():
     summary={"resolution":HFT_RESOLUTION,"source":HFT_SOURCE,"jobs":len(results),
              "completed":sum(x["status"]=="COMPLETED" for x in results),
              "failed":sum(x["status"]=="FAILED" for x in results),
+             "no_data":sum(x["status"]=="NO_DATA" for x in results),
              "dry_run":not args.run,"results":results}
     Path(args.json).parent.mkdir(parents=True,exist_ok=True); Path(args.json).write_text(json.dumps(summary,indent=2),encoding="utf-8")
     print(json.dumps(summary,indent=2))

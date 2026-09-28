@@ -11,6 +11,8 @@ def validate(path: str) -> dict:
     for row in rows:
         by_day[row["trade_date"]].append(row)
     errors = []
+    if not rows:
+        errors.append({"reason": "EMPTY_MANIFEST"})
     for day, day_rows in sorted(by_day.items()):
         options = [r for r in day_rows if r["kind"] == "OPTION"]
         futures = [r for r in day_rows if r["kind"] == "FUTURES"]

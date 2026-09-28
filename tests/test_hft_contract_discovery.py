@@ -14,3 +14,17 @@ def test_monthly_symbol_parsing():
 def test_future_selection():
     response = {"data": {"contracts": {"futures": ["NSE:NIFTY26AUGFUT", "NSE:NIFTY26SEPFUT"], "options": []}}}
     assert find_nearest_future_symbol(response) == "NSE:NIFTY26AUGFUT"
+
+def test_epoch_expiry_parsing():
+    from datetime import datetime, timezone
+    from research.hft_contract_discovery import extract_expiry_dates
+    epoch = int(datetime(2026, 8, 25, tzinfo=timezone.utc).timestamp())
+    response = {"data": {"expiry_dates": {"options": [epoch], "futures": []}}}
+    assert extract_expiry_dates(response, "options") == {date(2026, 8, 25)}
+
+def test_nested_epoch_expiry_parsing():
+    from datetime import datetime, timezone
+    from research.hft_contract_discovery import extract_expiry_dates
+    epoch = int(datetime(2026, 8, 25, tzinfo=timezone.utc).timestamp())
+    response = {"data": {"expiry_dates": {"options": [{"expiryDateEpoch": epoch}], "futures": []}}}
+    assert extract_expiry_dates(response, "options") == {date(2026, 8, 25)}

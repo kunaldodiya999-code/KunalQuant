@@ -78,7 +78,9 @@ def discover_expiry_dates(client: FyersClient, start: date, end: date) -> tuple[
     options: set[date] = set()
     # range_to must include the future expiry after the trade date; a one-day
     # request ending on the trade date can legitimately return no expiry.
-    query_end = end + timedelta(days=45)
+    query_end = min(end + timedelta(days=45), date.today() - timedelta(days=1))
+    if query_end < start:
+        query_end = start
     for chunk_start, chunk_end in _date_chunks(start, query_end):
         response = client.expired_expiry_dates(
             symbol=UNDERLYING_SYMBOL,

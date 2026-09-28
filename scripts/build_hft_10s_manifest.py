@@ -28,7 +28,7 @@ def load_daily_open_rows(start: str, end: str) -> list[dict]:
             """SELECT timestamp, open FROM candles JOIN instruments i ON i.id=candles.instrument_id
                WHERE i.broker='FYERS' AND i.symbol=? AND candles.resolution='1'
                AND timestamp BETWEEN strftime('%s', ?) AND strftime('%s', ?) ORDER BY timestamp""",
-            (start + " 00:00:00", end + " 23:59:59"),
+            (UNDERLYING_SYMBOL, start + " 00:00:00", end + " 23:59:59"),
         ).fetchall()
         by_day = {}
         for row in rows:

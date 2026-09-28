@@ -16,5 +16,6 @@ def test_requested_ladder_is_12():
     text=(ROOT/"config"/"hft_data.py").read_text(encoding="utf-8")
     assert 'HFT_RESOLUTION = "10S"' in text
     assert 'HFT_FETCH_RESOLUTION = "5S"' in text
+    assert 'HFT_UNDERLYING_MODE = "NIFTY_FUTURES"' in text
     assert "(0, 50, 100, 150, 200, 250)" in text
     assert '("CE", "PE")' in text

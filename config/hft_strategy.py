@@ -7,6 +7,10 @@ and normal option-trading modules.
 from __future__ import annotations
 
 HFT_GAP_OPEN_ENABLED_DEFAULT = False
+
+# Current research price path: actual historical NIFTY futures.
+# This is explicit and switchable; it does not claim futures equal spot.
+HFT_UNDERLYING_MODE = "NIFTY_FUTURES"
 GAP_THRESHOLD_POINTS = 50.0
 CURRENT_WEEKLY_ONLY = True
 REQUIRE_FIRST_CANDLE_OPEN_EQUALS_LOW = True

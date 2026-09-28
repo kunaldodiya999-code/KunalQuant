@@ -8,7 +8,7 @@ universe for the future 10-second HFT strategy.
 
 from __future__ import annotations
 
-HFT_RESOLUTION = "10"
+HFT_RESOLUTION = "10S"
 
 # Exact user-approved strike ladder, applied identically to CE and PE:
 # ATM, ATM+50, ATM+100, ATM+150, ATM+200, ATM+250.

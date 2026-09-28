@@ -58,7 +58,7 @@ class HFTDownloader:
     def run(self,manifest_path,limit=None):
         with open(manifest_path,encoding="utf-8",newline="") as f: rows=list(csv.DictReader(f))
         jobs=sorted({(r["symbol"],r["trade_date"],"standard" if r["kind"]=="INDEX" else "expired")
-                     for r in rows if r["kind"] in {"OPTION","FUTURES"}})
+                     for r in rows if r["kind"] in {"INDEX","OPTION","FUTURES"}})
         if limit: jobs=jobs[:limit]
         results=[]
         for i,(sym,day,mode) in enumerate(jobs,1):

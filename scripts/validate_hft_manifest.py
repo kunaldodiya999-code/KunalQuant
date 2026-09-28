@@ -18,7 +18,16 @@ def validate(path: str) -> dict:
         futures = [r for r in day_rows if r["kind"] == "FUTURES"]
         index = [r for r in day_rows if r["kind"] == "INDEX"]
         option_keys = {(r["strike"], r["option_type"]) for r in options}
-        expected = {(str(int(day_rows[0]["atm_strike"]) + offset), typ)
+        atm_values = {r.get("atm_strike", "").strip() for r in options if r.get("atm_strike", "").strip()}
+        if len(atm_values) != 1:
+            errors.append({
+                "trade_date": day,
+                "reason": "ATM_STRIKE_MISSING_OR_INCONSISTENT",
+                "atm_values": sorted(atm_values),
+            })
+            continue
+        atm_strike = int(next(iter(atm_values)))
+        expected = {(str(atm_strike + offset), typ)
                     for offset in (0, 50, 100, 150, 200, 250)
                     for typ in ("CE", "PE")}
         if len(options) != 12 or option_keys != expected:

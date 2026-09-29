@@ -89,3 +89,8 @@ def test_discovery_script_source_contains_targeted_expiry_debug_controls():
     assert "Requested tuples:" in source
     assert "Parsed strike range" in source
     assert "+/-500" in source
+
+
+def test_fyers_oct_weekly_symbol_parses_strike():
+    contract = {"symbol": "NSE:NIFTY24O1019550CE"}
+    assert _contract_strike(contract, date(2024, 10, 10)) == 19550.0

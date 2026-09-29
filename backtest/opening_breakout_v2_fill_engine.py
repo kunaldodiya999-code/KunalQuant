@@ -8,8 +8,7 @@ No-lookahead rules:
 - Entry search begins on the first bar strictly after trigger_timestamp.
 - A pending marketable-limit order can fill only when that bar's OHLC can
   prove the limit was reachable.
-- When both SL and TP are reachable inside one OHLC bar, SL wins. This is the
-  conservative ambiguity rule and is intentionally deterministic.
+- When both SL and TP are reachable inside one OHLC bar, SL wins.
 - Fill timeout is measured from the trigger timestamp.
 - Force-exit is evaluated only after the position is actually filled.
 """
@@ -71,10 +70,7 @@ def _conservative_fill_price(
         return None
 
     if side == "BUY":
-        # If the market opens through our limit, the order cannot improve past
-        # the opening print. Otherwise the configured limit is the worst fill.
         return min(bar.open, limit_price)
-    # SELL analogue.
     return max(bar.open, limit_price)
 
 
@@ -130,8 +126,10 @@ def simulate_exit(
 ) -> tuple[FillResult, float | None]:
     """Simulate exits after an entry fill.
 
-    SL wins when both SL and TP are touched by the same OHLC bar. Trailing is
-    updated only after evaluating the current bar's exit conditions.
+    Stop has precedence over target when both are touched in one OHLC bar.
+    A stop trigger is converted to its configured marketable-limit price, but
+    the historical fill is conservatively bounded to the trigger/limit rather
+    than pretending the order existed at the bar open.
     """
     if quantity <= 0:
         raise ValueError("quantity must be > 0")
@@ -144,26 +142,23 @@ def simulate_exit(
     for bar in bars:
         if bar.timestamp <= entry_timestamp:
             continue
-        if force_exit_timestamp is not None and bar.timestamp >= force_exit_timestamp:
-            return (
-                FillResult(True, bar.timestamp, bar.open, "FORCE_EXIT"),
-                current_stop,
-            )
 
-        # Conservative precedence: stop before target.
+        if force_exit_timestamp is not None and bar.timestamp >= force_exit_timestamp:
+            return FillResult(True, bar.timestamp, bar.open, "FORCE_EXIT"), current_stop
+
         if current_stop is not None and _stop_hit(bar, direction, current_stop):
             trigger_limit = sl_trigger_limit_price(
                 current_stop,
                 direction,
                 policy.exit_buffer_points,
             )
-            price = _conservative_fill_price(
-                bar,
-                "SELL" if direction == "LONG" else "BUY",
-                trigger_limit,
-            )
-            if price is None:
-                price = current_stop
+            if direction == "LONG":
+                # Long stop: the trigger occurs on the way down. The fill cannot
+                # be better than the stop trigger and is conservatively bounded
+                # by the lower marketable-limit price.
+                price = min(current_stop, trigger_limit)
+            else:
+                price = max(current_stop, trigger_limit)
             return FillResult(True, bar.timestamp, price, "STOP_LOSS"), current_stop
 
         if target_price is not None and _target_hit(bar, direction, target_price):
@@ -197,7 +192,7 @@ def simulate_exit(
 
 
 def simulate_trade(
-    signal: object,
+    signal: Signal,
     *,
     direction: Direction,
     quantity: int,
@@ -219,7 +214,6 @@ def simulate_trade(
     if quantity <= 0:
         raise ValueError("quantity must be > 0")
 
-    # Explicitly reject an entry that is already too far through the breakout.
     distance = (
         ltp_at_signal - breakout_price
         if direction == "LONG"
@@ -232,9 +226,8 @@ def simulate_trade(
             stop_price, target_price, stop_price, 0.0, quantity,
         )
 
-    synthetic_signal = signal
     entry_intent = build_entry_intent(
-        synthetic_signal,
+        signal,
         quantity,
         ltp_at_signal,
         policy,
@@ -249,7 +242,7 @@ def simulate_trade(
 
     if not entry.filled:
         return HistoricalTrade(
-            synthetic_signal, entry, FillResult(False, None, None, "NO_EXIT"),
+            signal, entry, FillResult(False, None, None, "NO_EXIT"),
             stop_price, target_price, stop_price, 0.0, quantity,
         )
 
@@ -273,14 +266,14 @@ def simulate_trade(
 
     if not exit_result.filled:
         return HistoricalTrade(
-            synthetic_signal, entry, exit_result,
+            signal, entry, exit_result,
             stop_price, target_price, final_stop, 0.0, quantity,
         )
 
     multiplier = 1.0 if direction == "LONG" else -1.0
     pnl = (exit_result.price - entry.price) * quantity * multiplier
     return HistoricalTrade(
-        synthetic_signal, entry, exit_result,
+        signal, entry, exit_result,
         stop_price, target_price, final_stop, pnl, quantity,
     )
 

@@ -27,6 +27,7 @@ from backtest.opening_breakout_v2_signal_engine import SignalSeries, scan_series
 from config.settings import DATABASE_PATH, EXPECTED_1M_CANDLES
 from research.opening_breakout_1m_v2 import Candle, IndicatorSnapshot, V2Config
 from strategies.option_contract_resolver import OptionContractResolver
+from backtest.historical_nifty_expiry import historical_nifty_expiry
 
 IST = ZoneInfo("Asia/Kolkata")
 SOURCE = "FYERS_FNO_HISTORY"
@@ -93,6 +94,7 @@ def resolve_required(
     resolver: OptionContractResolver,
     event,
     underlying_candles: list[Candle],
+    session_dates: set[date],
 ) -> RequiredContract:
     signal_date = date_from_ts(event.trigger_timestamp)
     option_type = option_type_for_direction(event.direction)
@@ -107,10 +109,10 @@ def resolve_required(
     underlying_price = max(candidates, key=lambda candle: candle.timestamp).close
     strike = resolver.calculate_atm_strike(underlying_price)
 
-    expiry = resolver.find_nearest_expiry(
-        entry_date=signal_date,
-        option_type=option_type,
-    )
+    # IMPORTANT: do not use Resolver V2 for historical expiry selection.
+    # Its local instrument inventory can be incomplete for older dates, which
+    # can otherwise select the first later expiry present in the database.
+    expiry = historical_nifty_expiry(signal_date, session_dates)
 
     with sqlite3.connect(resolver.database_path) as db:
         row = db.execute(
@@ -259,6 +261,7 @@ def main() -> None:
     resolver = OptionContractResolver(database_path=args.database)
     required: list[RequiredContract] = []
     sessions = session_groups(nifty)
+    session_dates = set(sessions)
 
     print("=" * 110)
     print("KUNAL QUANT — OPENING BREAKOUT V2 REQUIRED OPTION COVERAGE AUDIT")
@@ -302,7 +305,7 @@ def main() -> None:
             )
             for event in signals:
                 try:
-                    required.append(resolve_required(resolver, event, candles))
+                    required.append(resolve_required(resolver, event, candles, session_dates))
                 except LookupError as exc:
                     print(
                         f"[UNRESOLVED] date={session_date} ts={event.trigger_timestamp} "

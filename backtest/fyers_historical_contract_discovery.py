@@ -86,6 +86,12 @@ def extract_option_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
     for item in candidates:
         normalised = _normalise_contract(item)
         if normalised and normalised.get("symbol"):
+            strike = _contract_strike(normalised)
+            option_type = _contract_option_type(normalised)
+            if strike is not None:
+                normalised["strike"] = strike
+            if option_type is not None:
+                normalised["option_type"] = option_type
             result.append(normalised)
     return result
 

@@ -67,3 +67,9 @@ def test_symbol_only_contract_infers_strike_and_type():
     assert contracts[0]["strike"] == 21600.0
     assert contracts[0]["option_type"] == "CE"
     assert contracts[1]["option_type"] == "PE"
+
+from backtest.fyers_historical_contract_discovery import _contract_strike
+
+def test_fyers_expiry_encoded_symbol_parses_strike():
+    contract = {"symbol": "NSE:NIFTY2410416800CE"}
+    assert _contract_strike(contract, date(2024, 1, 4)) == 16800.0

@@ -108,7 +108,10 @@ def _contract_strike(contract: dict[str, Any], expiry_date: date | None = None) 
 
     symbol = str(contract.get("symbol", "")).strip().upper()
     if expiry_date is not None:
-        prefix = f"NIFTY{expiry_date:%y}{expiry_date.month}{expiry_date:%d}"
+        # FYERS weekly NIFTY symbology uses numeric month digits for Jan-Sep
+        # and O/N/D for Oct/Nov/Dec, followed by two-digit expiry day.
+        month_token = str(expiry_date.month) if expiry_date.month <= 9 else {10: "O", 11: "N", 12: "D"}[expiry_date.month]
+        prefix = f"NIFTY{expiry_date:%y}{month_token}{expiry_date:%d}"
         if symbol.startswith("NSE:" + prefix):
             suffix = symbol[len("NSE:" + prefix):]
             suffix = re.sub(r"(?:CE|PE)$", "", suffix)
@@ -117,6 +120,8 @@ def _contract_strike(contract: dict[str, Any], expiry_date: date | None = None) 
             except ValueError:
                 pass
 
+    # Fallback: the strike is the final numeric run immediately before CE/PE.
+    # This also handles symbols such as NIFTY24O1019550CE.
     match = re.search(r"(\d+)(?:CE|PE)$", symbol)
     if match:
         numeric = float(match.group(1))

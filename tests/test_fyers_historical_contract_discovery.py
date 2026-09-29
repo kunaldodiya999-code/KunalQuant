@@ -58,3 +58,12 @@ def test_discovery_uses_historical_expiry():
 
     assert len(matches) == 1
     assert client.calls == [("NSE:NIFTY50-INDEX", "2024-01-04")]
+
+
+def test_symbol_only_contract_infers_strike_and_type():
+    contracts = extract_option_contracts(
+        response(["NSE:NIFTY24JAN21600CE", "NSE:NIFTY24JAN21600PE"])
+    )
+    assert contracts[0]["strike"] == 21600.0
+    assert contracts[0]["option_type"] == "CE"
+    assert contracts[1]["option_type"] == "PE"

@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Iterable
+import re
 
 from api.fyers_client import FyersClient
 
@@ -91,18 +92,32 @@ def extract_option_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _contract_strike(contract: dict[str, Any]) -> float | None:
     value = _first(contract, "strike", "strike_price", "strikePrice")
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+    if value is not None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            pass
+
+    symbol = str(contract.get("symbol", "")).strip().upper()
+    match = re.search(r"(\d+)(?:CE|PE)$", symbol)
+    if match:
+        return float(match.group(1))
+    return None
 
 
 def _contract_option_type(contract: dict[str, Any]) -> str | None:
-    return _normalise_option_type(
+    explicit = _normalise_option_type(
         _first(contract, "option_type", "optionType", "optiontype", "type")
     )
+    if explicit is not None:
+        return explicit
+
+    symbol = str(contract.get("symbol", "")).strip().upper()
+    if symbol.endswith("CE"):
+        return "CE"
+    if symbol.endswith("PE"):
+        return "PE"
+    return None
 
 
 def filter_exact_option(

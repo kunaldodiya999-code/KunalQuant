@@ -185,9 +185,12 @@ def main() -> None:
     print("\n" + "=" * 100)
     print("DISCOVERY SUMMARY")
     print("=" * 100)
+    total_requested = sum(len(item.get("requested", [])) for item in results_by_expiry.values())
+    total_found = sum(len(item.get("found", [])) for item in results_by_expiry.values())
+    total_missing = sum(len(item.get("missing", [])) for item in results_by_expiry.values())
     print(f"Requested tuples : {total_requested}")
     print(f"Found tuples     : {total_found}")
-    print(f"Missing tuples   : {total_requested - total_found}")
+    print(f"Missing tuples   : {total_missing}")
     print(f"Report written   : {args.output}")
     print("=" * 100)
 

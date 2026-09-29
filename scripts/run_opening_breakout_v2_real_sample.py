@@ -86,13 +86,15 @@ def main() -> None:
     if len(underlying) < 2:
         raise RuntimeError("not enough NIFTY candles in requested window")
 
+    setup = underlying[0]
+
     config = V2Config(
         trade_instrument="CALL",
         market_bias="NEUTRAL",
         selected_timeframes=("1M",),
         selected_triggers=("CANDLE_HIGH",),
         filter_open_high=False,
-        filter_open_low=True,
+        filter_open_low=False,
         custom_sl_points=20.0,
         tp_mode="RR_RATIO",
         rr_multiplier=2.0,
@@ -113,8 +115,22 @@ def main() -> None:
     print("KUNAL QUANT — OPENING BREAKOUT V2 REAL HISTORICAL SAMPLE")
     print("=" * 90)
     print(f"NIFTY candles : {len(underlying)}")
+    print(
+        f"Setup candle  : {setup.timestamp} "
+        f"O={setup.open:.2f} H={setup.high:.2f} "
+        f"L={setup.low:.2f} C={setup.close:.2f}"
+    )
     print(f"Opening alerts: {len(alerts)}")
     print(f"Signals       : {len(signals)}")
+
+    for event in signals[:10]:
+        print(
+            f"[SIGNAL] ts={event.trigger_timestamp} "
+            f"direction={event.direction} "
+            f"breakout={event.breakout_price:.2f}"
+        )
+    if len(signals) > 10:
+        print(f"[SIGNAL] ... {len(signals) - 10} additional signals")
 
     closed = 0
     rejected = 0

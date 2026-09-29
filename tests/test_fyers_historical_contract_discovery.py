@@ -38,7 +38,7 @@ def test_parser_accepts_flat_options_fallback():
     contracts = extract_option_contracts(
         {"data": {"options": ["NSE:NIFTY24JAN21600CE"]}}
     )
-    assert contracts == [{"symbol": "NSE:NIFTY24JAN21600CE"}]
+    assert contracts == [{"symbol": "NSE:NIFTY24JAN21600CE", "strike": 21600.0, "option_type": "CE"}]
 
 
 def test_discovery_uses_historical_expiry():

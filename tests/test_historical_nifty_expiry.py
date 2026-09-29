@@ -10,6 +10,7 @@ def test_2024_uses_thursday_expiry():
 
 def test_2025_transition_uses_thursday_then_tuesday():
     sessions = {
+        date(2025, 8, 27),
         date(2025, 8, 28),
         date(2025, 8, 29),
         date(2025, 9, 1),

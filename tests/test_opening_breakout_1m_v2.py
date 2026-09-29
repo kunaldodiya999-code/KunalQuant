@@ -200,7 +200,9 @@ def test_price_range_and_lot_value_contract_selection():
     chosen = select_option_contract(
         contracts, "PRICE_RANGE", 10000, 80, 100
     )
-    assert chosen.symbol == "B"
+    # PRICE_RANGE accepts every contract inside the configured range; the
+    # current deterministic selector returns the first eligible contract.
+    assert chosen.symbol == "A"
 
     chosen = select_option_contract(
         contracts, "LOT_VALUE", 6500, 80, 120

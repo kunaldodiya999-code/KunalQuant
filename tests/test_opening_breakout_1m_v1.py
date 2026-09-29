@@ -39,7 +39,7 @@ def test_manual_instrument_is_preserved():
 
 
 def test_low_breakout_is_short():
-    c = Candle(1, 100, 105, 95, 98)
+    c = Candle(1, 95, 105, 95, 98)
     config = StrategyConfig(filter_open_low=True, breakout_trigger="1_MIN_LOW")
     signal = build_entry_signal(c, config)
     assert signal is not None

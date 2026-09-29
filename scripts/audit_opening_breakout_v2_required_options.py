@@ -145,6 +145,7 @@ def resolve_required(
 def audit_coverage(
     database_path: Path,
     required: list[RequiredContract],
+    expected_candles_by_date: dict[date, int] | None = None,
 ) -> list[dict]:
     unique = {}
     for item in required:
@@ -157,6 +158,7 @@ def audit_coverage(
         unique[key] = item
 
     results = []
+    expected_candles_by_date = expected_candles_by_date or {}
     with sqlite3.connect(database_path) as db:
         for item in sorted(
             unique.values(),
@@ -209,9 +211,15 @@ def audit_coverage(
             ).fetchone()
 
             count, first_ts, last_ts = row
+            expected_count = int(
+                expected_candles_by_date.get(
+                    item.signal_date,
+                    EXPECTED_1M_CANDLES,
+                )
+            )
             status = (
                 "COMPLETE"
-                if int(count or 0) >= EXPECTED_1M_CANDLES
+                if int(count or 0) >= expected_count
                 else ("EMPTY" if not count else "PARTIAL")
             )
             results.append(

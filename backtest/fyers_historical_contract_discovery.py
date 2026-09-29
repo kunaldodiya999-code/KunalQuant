@@ -96,18 +96,31 @@ def extract_option_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
-def _contract_strike(contract: dict[str, Any]) -> float | None:
+def _contract_strike(contract: dict[str, Any], expiry_date: date | None = None) -> float | None:
     value = _first(contract, "strike", "strike_price", "strikePrice")
     if value is not None:
         try:
-            return float(value)
+            numeric = float(value)
+            if 1000 <= numeric <= 100000:
+                return numeric
         except (TypeError, ValueError):
             pass
 
     symbol = str(contract.get("symbol", "")).strip().upper()
+    if expiry_date is not None:
+        prefix = f"NIFTY{expiry_date:%y}{expiry_date.month}{expiry_date:%d}"
+        if symbol.startswith("NSE:" + prefix):
+            suffix = symbol[len("NSE:" + prefix):]
+            suffix = re.sub(r"(?:CE|PE)$", "", suffix)
+            try:
+                return float(suffix)
+            except ValueError:
+                pass
+
     match = re.search(r"(\d+)(?:CE|PE)$", symbol)
     if match:
-        return float(match.group(1))
+        numeric = float(match.group(1))
+        return numeric if 1000 <= numeric <= 100000 else None
     return None
 
 
@@ -157,7 +170,15 @@ class FyersHistoricalContractDiscovery:
             symbol="NSE:NIFTY50-INDEX",
             expiry_date=expiry_date.isoformat(),
         )
-        return extract_option_contracts(response)
+        contracts = extract_option_contracts(response)
+        for contract in contracts:
+            strike = _contract_strike(contract, expiry_date)
+            option_type = _contract_option_type(contract)
+            if strike is not None:
+                contract["strike"] = strike
+            if option_type is not None:
+                contract["option_type"] = option_type
+        return contracts
 
     def discover_exact(
         self,

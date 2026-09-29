@@ -20,6 +20,7 @@ def main() -> None:
     )
     parser.add_argument("--manifest", default="opening_breakout_v2_option_acquisition_manifest.json")
     parser.add_argument("--limit-expiries", type=int, default=1)
+    parser.add_argument("--debug", action="store_true")
     parser.add_argument("--output", default="opening_breakout_v2_fyers_contract_discovery.json")
     args = parser.parse_args()
 
@@ -57,6 +58,10 @@ def main() -> None:
         print(f"\nChecking expiry {expiry_text} ...")
         contracts = discovery.discover_expiry(date.fromisoformat(expiry_text))
         found_by_key = {}
+        if args.debug:
+            print("  First 10 normalized FYERS contracts:")
+            for sample in contracts[:10]:
+                print("   ", repr(sample))
 
         for contract in contracts:
             symbol = contract.get("symbol")

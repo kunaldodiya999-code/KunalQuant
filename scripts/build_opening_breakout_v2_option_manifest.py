@@ -67,7 +67,7 @@ def build_required(database_path: Path, start_ts: int, end_ts: int) -> list:
             )
 
             for event in signals:
-                required.append(resolve_required(resolver, event, candles))
+                required.append(resolve_required(resolver, event, candles, set(session_groups(nifty))))
 
     return required
 

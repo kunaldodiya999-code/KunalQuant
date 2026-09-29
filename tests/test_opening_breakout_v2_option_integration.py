@@ -50,6 +50,7 @@ def test_v2_signal_resolves_contract_and_completes_historical_trade():
         ]
 
     config = V2Config(
+        capital_allocation_percent=25.0,
         custom_sl_points=5.0,
         tp_mode="CUSTOM_POINTS",
         custom_tp_points=8.0,
@@ -106,18 +107,28 @@ def test_missing_lot_size_is_rejected_instead_of_invented():
             return Contract()
 
     def loader(*args):
-        return [Candle(100, 100, 102, 99, 101), Candle(120, 102, 103, 101, 102), Candle(121, 103, 104, 102, 103)]
+        return [
+            Candle(100, 100, 102, 99, 101),
+            Candle(120, 102, 103, 101, 102),
+            Candle(121, 103, 104, 102, 103),
+        ]
 
     try:
         run_opening_breakout_trade(
             event=event,
-            underlying_candles=[Candle(100, 25000, 25015, 24990, 25010)],
+            underlying_candles=[
+                Candle(100, 25000, 25015, 24990, 25010)
+            ],
             resolver=Resolver(),
             option_loader=loader,
             config=V2Config(custom_sl_points=2.0),
             execution_policy=V2ExecutionPolicy(),
             capital=100000,
-            lot_size_loader=lambda instrument_id: (_ for _ in ()).throw(LookupError("lot size missing")),
+            lot_size_loader=lambda instrument_id: (
+                (_ for _ in ()).throw(
+                    LookupError("lot size missing")
+                )
+            ),
         )
     except LookupError as exc:
         assert "lot size missing" in str(exc)

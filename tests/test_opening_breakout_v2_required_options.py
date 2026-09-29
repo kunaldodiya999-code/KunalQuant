@@ -98,3 +98,42 @@ def test_required_option_coverage_classifies_complete_partial_empty_and_unregist
     assert (25050, "PARTIAL") in statuses
     assert (25100, "EMPTY") in statuses
     assert (25150, "UNREGISTERED") in statuses
+
+
+def test_required_option_coverage_accepts_short_special_session_when_session_length_matches(tmp_path):
+    db_path = tmp_path / "muhurat.db"
+    make_db(db_path)
+
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "INSERT INTO instruments VALUES (?,?,?,?,?,?,?)",
+            (10, "FYERS", "NIFTY", "2025-10-28", 25900, "PE", "NSE:NIFTY25OCT25900PE"),
+        )
+        db.executemany(
+            "INSERT INTO candles VALUES (?,?,?,?,?,?,?,?)",
+            [
+                (10, session_ts(i), 1, 1, 1, 1, "1", "FYERS_FNO_HISTORY")
+                for i in range(61)
+            ],
+        )
+        db.commit()
+
+    item = RequiredContract(
+        date(2026, 9, 23),
+        session_ts(20),
+        "SHORT",
+        "PE",
+        25900,
+        date(2026, 9, 24),
+        10,
+        "NSE:NIFTY25OCT25900PE",
+    )
+
+    results = audit_coverage(
+        db_path,
+        [item],
+        expected_candles_by_date={date(2026, 9, 23): 61},
+    )
+
+    assert results[0]["status"] == "COMPLETE"
+    assert results[0]["candles"] == 61

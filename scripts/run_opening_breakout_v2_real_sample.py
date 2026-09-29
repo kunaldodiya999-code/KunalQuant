@@ -10,18 +10,18 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from backtest.fyers_option_candles import FyersOptionCandleLoader
-from backtest.opening_breakout_v2_option_integration import (
-    run_opening_breakout_trade,
-)
-from backtest.opening_breakout_v2_signal_engine import (
-    SignalSeries,
-    scan_series,
-)
+from backtest.opening_breakout_v2_option_integration import run_opening_breakout_trade
+from backtest.opening_breakout_v2_signal_engine import SignalSeries, scan_series
 from config.settings import DATABASE_PATH
 from execution.opening_breakout_v2_execution import V2ExecutionPolicy
 from research.opening_breakout_1m_v2 import Candle, V2Config
@@ -31,16 +31,10 @@ IST = ZoneInfo("Asia/Kolkata")
 
 
 def epoch_seconds(value: str) -> int:
-    return int(
-        datetime.fromisoformat(value).replace(tzinfo=IST).timestamp()
-    )
+    return int(datetime.fromisoformat(value).replace(tzinfo=IST).timestamp())
 
 
-def load_nifty_candles(
-    database_path: Path,
-    start_ts: int,
-    end_ts: int,
-) -> list[Candle]:
+def load_nifty_candles(database_path: Path, start_ts: int, end_ts: int) -> list[Candle]:
     with sqlite3.connect(database_path) as connection:
         rows = connection.execute(
             """
@@ -56,29 +50,13 @@ def load_nifty_candles(
             (start_ts, end_ts),
         ).fetchall()
 
-    return [
-        Candle(
-            int(ts),
-            float(op),
-            float(hi),
-            float(lo),
-            float(cl),
-        )
-        for ts, op, hi, lo, cl in rows
-    ]
+    return [Candle(int(ts), float(op), float(hi), float(lo), float(cl))
+            for ts, op, hi, lo, cl in rows]
 
 
-def build_option_event_series(
-    candles: list[Candle],
-    *,
-    option_type: str,
-    config: V2Config,
-) -> SignalSeries:
-    # SignalSeries is contract-shaped. For this first runner we use a
-    # placeholder strike/lot metadata only for signal generation; Resolver V2
-    # determines the actual contract after the signal.
+def build_option_event_series(candles: list[Candle], *, option_type: str) -> SignalSeries:
     return SignalSeries(
-        symbol='NIFTY-V2-CANDIDATE',
+        symbol="NIFTY-V2-CANDIDATE",
         option_type=option_type,
         strike=0,
         lot_size=1,
@@ -97,11 +75,7 @@ def main() -> None:
     start_ts = epoch_seconds(args.start)
     end_ts = epoch_seconds(args.end)
 
-    underlying = load_nifty_candles(
-        DATABASE_PATH,
-        start_ts,
-        end_ts,
-    )
+    underlying = load_nifty_candles(DATABASE_PATH, start_ts, end_ts)
     if len(underlying) < 2:
         raise RuntimeError("not enough NIFTY candles in requested window")
 
@@ -119,15 +93,8 @@ def main() -> None:
         capital_allocation_percent=100.0,
     )
 
-    # Current signal engine requires option-shaped series. The first real-data
-    # runner intentionally scans CE and PE candidates separately; only CALL
-    # events are consumed here because this is a bounded CALL validation.
     signals = scan_series(
-        build_option_event_series(
-            underlying,
-            option_type="CE",
-            config=config,
-        ),
+        build_option_event_series(underlying, option_type="CE"),
         config=config,
     )
 
@@ -159,23 +126,14 @@ def main() -> None:
                 ),
                 capital=args.capital,
                 force_exit_timestamp=(
-                    datetime.fromtimestamp(
-                        event.trigger_timestamp,
-                        tz=IST,
-                    ).replace(
-                        hour=15,
-                        minute=15,
-                        second=0,
-                        microsecond=0,
-                    ).timestamp()
+                    datetime.fromtimestamp(event.trigger_timestamp, tz=IST)
+                    .replace(hour=15, minute=15, second=0, microsecond=0)
+                    .timestamp()
                 ),
             )
         except Exception as exc:
             rejected += 1
-            print(
-                f"[REJECTED] {event.trigger_timestamp} "
-                f"{type(exc).__name__}: {exc}"
-            )
+            print(f"[REJECTED] {event.trigger_timestamp} {type(exc).__name__}: {exc}")
             continue
 
         if trade.status == "CLOSED":

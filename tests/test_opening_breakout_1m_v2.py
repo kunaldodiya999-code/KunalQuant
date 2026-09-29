@@ -8,6 +8,8 @@ from research.opening_breakout_1m_v2 import (
     Candle,
     ContractQuote,
     IndicatorSnapshot,
+    OptionOpeningCandle,
+    build_opening_alerts,
     V2Config,
     build_signals,
     calculation_timeframe,
@@ -51,6 +53,22 @@ def test_opening_high_and_low_are_independent_candidates_when_both_enabled():
         selected_triggers=(),
     )
     assert opening_candidate_directions(candle, config) == ("LONG", "SHORT")
+
+
+def test_opening_alerts_show_both_option_sides_independently():
+    items = [
+        OptionOpeningCandle("CE1", 24000, "CE", Candle(1, 100, 110, 100, 108)),
+        OptionOpeningCandle("PE1", 24000, "PE", Candle(1, 100, 100, 90, 92)),
+    ]
+    config = V2Config(
+        filter_open_low=True,
+        filter_open_high=True,
+        open_equal_tolerance_points=0.0,
+        selected_triggers=(),
+    )
+    alerts = build_opening_alerts(items, config)
+    assert {a.symbol for a in alerts} == {"CE1", "PE1"}
+    assert {a.condition for a in alerts} == {"OPEN_LOW", "OPEN_HIGH"}
 
 
 def test_multiple_timeframes_force_one_minute_calculation():

@@ -15,6 +15,14 @@ from typing import Iterable
 THURSDAY_LAST_EXPIRY = date(2025, 8, 28)
 TUESDAY_FIRST_EXPIRY = date(2025, 9, 2)
 
+# NSE declared 21-Oct-2025 a trading holiday for the normal F&O calendar.
+# Muhurat trading was held that day, but the scheduled Tuesday NIFTY expiry
+# therefore moved to the previous trading day, 20-Oct-2025. Keep this separate
+# from session_dates because a special Muhurat session may still appear there.
+NIFTY_FO_HOLIDAYS = {
+    date(2025, 10, 21),
+}
+
 
 def _next_weekday(start: date, weekday: int) -> date:
     delta = (weekday - start.weekday()) % 7
@@ -41,7 +49,7 @@ def historical_nifty_expiry(signal_date: date, session_dates: Iterable[date]) ->
 
     # If the candidate is a holiday, NSE expiry moves to the previous trading day.
     # For a valid signal session, that previous session can only be <= candidate.
-    while candidate not in sessions:
+    while candidate not in sessions or candidate in NIFTY_FO_HOLIDAYS:
         candidate -= timedelta(days=1)
 
     if candidate < signal_date:
@@ -49,7 +57,7 @@ def historical_nifty_expiry(signal_date: date, session_dates: Iterable[date]) ->
         # previous trading session is before today's signal session. In that
         # case the next scheduled expiry is the correct contract.
         candidate = _next_weekday(signal_date + timedelta(days=1), weekday)
-        while candidate not in sessions:
+        while candidate not in sessions or candidate in NIFTY_FO_HOLIDAYS:
             candidate -= timedelta(days=1)
 
     return candidate

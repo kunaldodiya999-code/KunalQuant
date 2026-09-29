@@ -100,3 +100,10 @@ def test_discovery_script_source_supports_refreshing_checkpointed_expiries():
     source = open("scripts/discover_opening_breakout_v2_fyers_contracts.py", encoding="utf-8").read()
     assert "--refresh-expiry" in source
     assert "and not args.refresh_expiry" in source
+
+
+def test_discovery_script_preserves_prior_checkpoints_for_targeted_runs():
+    source = open("scripts/discover_opening_breakout_v2_fyers_contracts.py", encoding="utf-8").read()
+    assert "results_by_expiry = dict(existing)" in source
+    assert "results_by_expiry[expiry_text]" in source
+    assert 'sorted(results_by_expiry.values(), key=lambda item: item["expiry_date"])' in source

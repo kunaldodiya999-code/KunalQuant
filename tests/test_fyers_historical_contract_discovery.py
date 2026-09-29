@@ -94,3 +94,9 @@ def test_discovery_script_source_contains_targeted_expiry_debug_controls():
 def test_fyers_oct_weekly_symbol_parses_strike():
     contract = {"symbol": "NSE:NIFTY24O1019550CE"}
     assert _contract_strike(contract, date(2024, 10, 10)) == 19550.0
+
+
+def test_discovery_script_source_supports_refreshing_checkpointed_expiries():
+    source = open("scripts/discover_opening_breakout_v2_fyers_contracts.py", encoding="utf-8").read()
+    assert "--refresh-expiry" in source
+    assert "and not args.refresh_expiry" in source

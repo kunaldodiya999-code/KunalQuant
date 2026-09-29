@@ -23,7 +23,7 @@ class FakeResolver:
         return Contract()
 
 
-def test_integration_reaches_resolver_before_data_access():
+def test_v2_signal_resolves_contract_and_completes_historical_trade():
     event = OpeningBreakoutEvent(
         symbol="candidate",
         option_type="CE",
@@ -44,25 +44,82 @@ def test_integration_reaches_resolver_before_data_access():
         return [
             Candle(100, 100, 102, 99, 101),
             Candle(120, 102, 103, 101, 102),
-            Candle(121, 103, 105, 102, 104),
-            Candle(122, 104, 125, 103, 124),
+            Candle(121, 103, 108, 102, 107),
+            Candle(122, 107, 110, 106, 109),
+            Candle(123, 109, 110, 90, 91),
         ]
 
-    # The current Resolver V2 interface intentionally does not expose lot size.
-    # This test asserts the integration boundary without inventing metadata.
+    config = V2Config(
+        custom_sl_points=5.0,
+        tp_mode="CUSTOM_POINTS",
+        custom_tp_points=8.0,
+        risk_per_trade_value=10000.0,
+    )
+
+    result = run_opening_breakout_trade(
+        event=event,
+        underlying_candles=underlying,
+        resolver=FakeResolver(),
+        option_loader=loader,
+        config=config,
+        execution_policy=V2ExecutionPolicy(
+            entry_buffer_points=1.0,
+            max_slippage_points=2.0,
+            fill_timeout_seconds=10,
+        ),
+        capital=100000,
+        lot_size_loader=lambda instrument_id: 65,
+    )
+
+    assert called[0][0] == 101
+    assert result.contract.symbol == "NSE:NIFTY26SEP25000CE"
+    assert result.option_signal_price == 102
+    assert result.entry.filled
+    assert result.entry.timestamp == 121
+    assert result.entry.price == 103
+    assert result.quantity == 195
+    assert result.lots == 3
+    assert result.stop_price == 98
+    assert result.target_price == 111
+    assert result.exit.reason == "STOP_LOSS"
+    assert result.exit.timestamp == 123
+    assert result.exit.price == 96
+    assert result.gross_pnl == (96 - 103) * 195
+
+
+def test_missing_lot_size_is_rejected_instead_of_invented():
+    event = OpeningBreakoutEvent(
+        symbol="candidate",
+        option_type="CE",
+        strike=25000,
+        lot_size=65,
+        direction="LONG",
+        instrument="CALL",
+        setup_timestamp=100,
+        trigger_timestamp=120,
+        breakout_price=101.0,
+        trigger_reasons=("CANDLE_HIGH",),
+    )
+
+    class Resolver:
+        def resolve(self, **kwargs):
+            return Contract()
+
+    def loader(*args):
+        return [Candle(100, 100, 102, 99, 101), Candle(120, 102, 103, 101, 102), Candle(121, 103, 104, 102, 103)]
+
     try:
         run_opening_breakout_trade(
             event=event,
-            underlying_candles=underlying,
-            resolver=FakeResolver(),
+            underlying_candles=[Candle(100, 25000, 25015, 24990, 25010)],
+            resolver=Resolver(),
             option_loader=loader,
-            config=V2Config(custom_sl_points=2.0, tp_mode="CUSTOM_POINTS", custom_tp_points=4.0),
-            execution_policy=V2ExecutionPolicy(entry_buffer_points=1.0),
+            config=V2Config(custom_sl_points=2.0),
+            execution_policy=V2ExecutionPolicy(),
             capital=100000,
+            lot_size_loader=lambda instrument_id: (_ for _ in ()).throw(LookupError("lot size missing")),
         )
-    except NotImplementedError as exc:
-        assert "lot size" in str(exc)
+    except LookupError as exc:
+        assert "lot size missing" in str(exc)
     else:
-        raise AssertionError("lot-size metadata must not be invented")
-
-    assert called and called[0][0] == 101
+        raise AssertionError("missing lot size must be rejected")

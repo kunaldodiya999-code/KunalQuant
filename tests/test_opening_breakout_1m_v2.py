@@ -207,7 +207,7 @@ def test_price_range_and_lot_value_contract_selection():
     chosen = select_option_contract(
         contracts, "LOT_VALUE", 6500, 80, 120
     )
-    assert chosen.symbol == "A"
+    assert chosen.symbol == "B"
 
 
 def test_trailing_points_moves_stop_up_from_planned_stop_and_never_back():

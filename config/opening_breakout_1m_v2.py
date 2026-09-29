@@ -158,6 +158,10 @@ ALLOW_MANUAL_SL_OVERRIDE = True
 ALLOW_MANUAL_TP_OVERRIDE = True
 SHOW_SL_WHEN_FILTER_OFF = True
 SHOW_TP_WHEN_FILTER_OFF = True
+# If SL/TP filters are OFF, these configurable chart-only seed distances
+# populate the draggable SL/TP lines at entry. They are not strategy filters.
+CHART_MANUAL_SL_SEED_POINTS = 20.0
+CHART_MANUAL_TP_SEED_POINTS = 20.0
 
 # Research-only feature switch. Disabled until independently validated.
 OPENING_BREAKOUT_V2_ENABLED_DEFAULT = False

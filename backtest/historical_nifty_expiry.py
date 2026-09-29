@@ -1,0 +1,55 @@
+"""Historical NIFTY option expiry calendar used for research-only contract selection.
+
+This intentionally does not modify the locked OptionContractResolver V2.  It supplies
+the historical exchange expiry date independently because local instrument inventory
+may be incomplete for older dates.
+"""
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+from typing import Iterable
+
+# NSE NIFTY weekly expiry was Thursday through 2025-08-28.  The revised
+# Tuesday schedule starts with the 2025-09-02 expiry.
+THURSDAY_LAST_EXPIRY = date(2025, 8, 28)
+TUESDAY_FIRST_EXPIRY = date(2025, 9, 2)
+
+
+def _next_weekday(start: date, weekday: int) -> date:
+    delta = (weekday - start.weekday()) % 7
+    return start + timedelta(days=delta)
+
+
+def historical_nifty_expiry(signal_date: date, session_dates: Iterable[date]) -> date:
+    """Return the first historically valid NIFTY expiry on/after signal_date.
+
+    The supplied session dates are used to move a scheduled expiry backward to
+    the previous actual NIFTY trading session when the scheduled day was a
+    market holiday.
+    """
+    sessions = set(session_dates)
+    if signal_date not in sessions:
+        raise ValueError("signal_date must be an actual NIFTY trading session")
+
+    if signal_date <= THURSDAY_LAST_EXPIRY:
+        weekday = 3  # Thursday
+    else:
+        weekday = 1  # Tuesday
+
+    candidate = _next_weekday(signal_date, weekday)
+
+    # If the candidate is a holiday, NSE expiry moves to the previous trading day.
+    # For a valid signal session, that previous session can only be <= candidate.
+    while candidate not in sessions:
+        candidate -= timedelta(days=1)
+
+    if candidate < signal_date:
+        # This can only happen when the scheduled expiry is a holiday and the
+        # previous trading session is before today's signal session. In that
+        # case the next scheduled expiry is the correct contract.
+        candidate = _next_weekday(signal_date + timedelta(days=1), weekday)
+        while candidate not in sessions:
+            candidate -= timedelta(days=1)
+
+    return candidate

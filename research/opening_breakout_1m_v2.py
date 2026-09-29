@@ -239,11 +239,12 @@ def _trigger_passes(
     indicators: IndicatorSnapshot,
     direction: Direction,
     config: V2Config,
+    current_ltp: float | None = None,
 ) -> bool:
     if trigger == "CANDLE_HIGH":
-        return direction == "LONG" and candle.high > candle.open
+        return current_ltp is not None and direction == "LONG" and current_ltp >= candle.high
     if trigger == "CANDLE_LOW":
-        return direction == "SHORT" and candle.low < candle.open
+        return current_ltp is not None and direction == "SHORT" and current_ltp <= candle.low
     if trigger == "ABOVE_VWAP":
         return indicators.vwap is not None and direction == "LONG" and candle.close > indicators.vwap
     if trigger == "BELOW_VWAP":
@@ -303,6 +304,7 @@ def build_signals(
     candle: Candle,
     indicators: IndicatorSnapshot,
     config: V2Config,
+    current_ltp: float | None = None,
 ) -> tuple[Signal, ...]:
     """Evaluate opening candidates and all selected confirmations.
 
@@ -323,7 +325,7 @@ def build_signals(
         if not _instrument_allows(direction, config):
             continue
         if config.selected_triggers and not all(
-            _trigger_passes(t, candle, indicators, direction, config)
+            _trigger_passes(t, candle, indicators, direction, config, current_ltp)
             for t in config.selected_triggers
         ):
             continue

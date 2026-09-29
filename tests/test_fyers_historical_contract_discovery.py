@@ -73,3 +73,11 @@ from backtest.fyers_historical_contract_discovery import _contract_strike
 def test_fyers_expiry_encoded_symbol_parses_strike():
     contract = {"symbol": "NSE:NIFTY2410416800CE"}
     assert _contract_strike(contract, date(2024, 1, 4)) == 16800.0
+
+
+def test_discovery_script_source_contains_resumable_rate_limit_controls():
+    source = open("scripts/discover_opening_breakout_v2_fyers_contracts.py", encoding="utf-8").read()
+    assert "--max-retries" in source
+    assert "--backoff-seconds" in source
+    assert "429" in source
+    assert "resumable" in source

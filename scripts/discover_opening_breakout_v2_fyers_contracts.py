@@ -56,9 +56,9 @@ def main() -> None:
         except (OSError, json.JSONDecodeError):
             existing = {}
 
-    results = []
-    total_requested = 0
-    total_found = 0
+    # Keep every previously checkpointed expiry. Targeted runs such as
+    # --start-expiry must update selected dates without discarding older results.
+    results_by_expiry = dict(existing)
 
     print("=" * 100)
     print("KUNAL QUANT — FYERS HISTORICAL CONTRACT DISCOVERY")
@@ -77,14 +77,10 @@ def main() -> None:
 
         if expiry_text in existing and not args.refresh_expiry:
             item = existing[expiry_text]
-            results.append(item)
-            total_requested += len(requested_keys)
-            total_found += len(item.get("found", []))
             print(f"\nSkipping checkpointed expiry {expiry_text} ...")
             print(f"  Found exact tuples       : {len(item.get("found", []))}")
             continue
 
-        total_requested += len(requested_keys)
         print(f"\nChecking expiry {expiry_text} ...")
 
         for attempt in range(args.max_retries + 1):
@@ -131,7 +127,6 @@ def main() -> None:
                 found_by_key[(float(strike), option_type)] = contract
 
         found_keys = requested_keys & set(found_by_key)
-        total_found += len(found_keys)
         missing = [
             {"strike": strike, "option_type": option_type}
             for strike, option_type in sorted(requested_keys - set(found_keys))
@@ -142,7 +137,7 @@ def main() -> None:
         print(f"  Found exact tuples       : {len(found_keys)}")
         print(f"  Missing exact tuples     : {len(missing)}")
 
-        results.append({
+        results_by_expiry[expiry_text] = {
             "expiry_date": expiry_text,
             "requested": requested,
             "found": [
@@ -163,11 +158,11 @@ def main() -> None:
             "source": "OPENING_BREAKOUT_V2_OPTION_ACQUISITION_MANIFEST",
             "read_only": True,
             "resumable": True,
-            "expiry_dates_checked": len(results),
-            "requested_tuples": total_requested,
-            "found_tuples": total_found,
-            "missing_tuples": total_requested - total_found,
-            "results": sorted(results, key=lambda item: item["expiry_date"]),
+            "expiry_dates_checked": len(results_by_expiry),
+            "requested_tuples": sum(len(item.get("requested", [])) for item in results_by_expiry.values()),
+            "found_tuples": sum(len(item.get("found", [])) for item in results_by_expiry.values()),
+            "missing_tuples": sum(len(item.get("missing", [])) for item in results_by_expiry.values()),
+            "results": sorted(results_by_expiry.values(), key=lambda item: item["expiry_date"]),
         }
         output_path.write_text(
             json.dumps(checkpoint, indent=2, default=str),
@@ -178,11 +173,11 @@ def main() -> None:
         "schema_version": 1,
         "source": "OPENING_BREAKOUT_V2_OPTION_ACQUISITION_MANIFEST",
         "read_only": True,
-        "expiry_dates_checked": len(expiries),
-        "requested_tuples": total_requested,
-        "found_tuples": total_found,
-        "missing_tuples": total_requested - total_found,
-        "results": results,
+        "expiry_dates_checked": len(results_by_expiry),
+        "requested_tuples": sum(len(item.get("requested", [])) for item in results_by_expiry.values()),
+        "found_tuples": sum(len(item.get("found", [])) for item in results_by_expiry.values()),
+        "missing_tuples": sum(len(item.get("missing", [])) for item in results_by_expiry.values()),
+        "results": sorted(results_by_expiry.values(), key=lambda item: item["expiry_date"]),
     }
 
     Path(args.output).write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")

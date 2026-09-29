@@ -176,6 +176,23 @@ class Signal:
 
 
 @dataclass(frozen=True)
+class OpeningAlert:
+    symbol: str
+    strike: float | None
+    option_type: str | None
+    condition: Literal["OPEN_LOW", "OPEN_HIGH"]
+    timestamp: int
+
+
+@dataclass(frozen=True)
+class OptionOpeningCandle:
+    symbol: str
+    strike: float | None
+    option_type: str | None
+    candle: Candle
+
+
+@dataclass(frozen=True)
 class ContractQuote:
     symbol: str
     option_type: str | None
@@ -197,6 +214,40 @@ class PositionSize:
     notional: float
     unused_risk: float
     unused_allocation: float
+
+
+def build_opening_alerts(
+    option_candles: Sequence[OptionOpeningCandle],
+    config: V2Config,
+) -> tuple[OpeningAlert, ...]:
+    """Return display-only alerts for OPEN=LOW/HIGH option candles."""
+    alerts: list[OpeningAlert] = []
+    for item in option_candles:
+        if config.filter_open_low and _within(
+            item.candle.open, item.candle.low, config.open_equal_tolerance_points
+        ):
+            alerts.append(
+                OpeningAlert(
+                    symbol=item.symbol,
+                    strike=item.strike,
+                    option_type=item.option_type,
+                    condition="OPEN_LOW",
+                    timestamp=item.candle.timestamp,
+                )
+            )
+        if config.filter_open_high and _within(
+            item.candle.open, item.candle.high, config.open_equal_tolerance_points
+        ):
+            alerts.append(
+                OpeningAlert(
+                    symbol=item.symbol,
+                    strike=item.strike,
+                    option_type=item.option_type,
+                    condition="OPEN_HIGH",
+                    timestamp=item.candle.timestamp,
+                )
+            )
+    return tuple(alerts)
 
 
 def calculation_timeframe(selected_timeframes: Sequence[str]) -> str:

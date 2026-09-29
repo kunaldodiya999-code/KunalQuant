@@ -89,6 +89,22 @@ class TradeChartTool:
     def clear_tp_override(self) -> None:
         self.manual_tp = None
 
+    def seed_manual_levels(self, sl_points: float, tp_points: float) -> None:
+        """Populate draggable protection levels when strategy SL/TP are OFF.
+
+        The seed is immediately treated as a manual chart override and can be
+        dragged at any time. It is intentionally explicit rather than hidden
+        inside the strategy filter engine.
+        """
+        if sl_points <= 0 or tp_points <= 0:
+            raise ValueError("chart seed points must be > 0")
+        if self.side == "LONG":
+            self.manual_sl = self.entry_price - sl_points
+            self.manual_tp = self.entry_price + tp_points
+        else:
+            self.manual_sl = self.entry_price + sl_points
+            self.manual_tp = self.entry_price - tp_points
+
     def mark_filled(self) -> None:
         if self.state != ChartOrderState.PENDING_ENTRY:
             raise ValueError("only pending entry can become filled")

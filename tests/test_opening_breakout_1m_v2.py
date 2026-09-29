@@ -243,6 +243,13 @@ def test_chart_drag_overrides_planned_levels():
     assert tool.effective_tp == 118
     assert any(line.overridden for line in tool.lines)
 
+    no_filter_tool = TradeChartTool(
+        symbol="NSE:TEST", side="LONG", quantity=65, entry_price=100
+    )
+    no_filter_tool.seed_manual_levels(20, 30)
+    assert no_filter_tool.effective_sl == 80
+    assert no_filter_tool.effective_tp == 130
+
 
 def test_entry_window_and_force_exit():
     window = EntryWindow.from_hhmm("09:15", "15:10", "15:15")

@@ -23,9 +23,9 @@ def _contract(
         "option_type": option_type,
         "instrument_id": None,
         "symbol": symbol,
-        "required_dates": missing_dates or ["2025-10-21"],
+        "required_dates": missing_dates if missing_dates is not None else ["2025-10-21"],
         "complete_dates": [],
-        "missing_dates": missing_dates or ["2025-10-21"],
+        "missing_dates": missing_dates if missing_dates is not None else ["2025-10-21"],
         "unregistered_dates": ["2025-10-21"],
     }
 

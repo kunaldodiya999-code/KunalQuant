@@ -88,11 +88,19 @@ def option_type_for_direction(direction: str) -> str:
 def resolve_required(
     resolver: OptionContractResolver,
     event,
+    underlying_candles: list[Candle],
 ) -> RequiredContract:
     signal_date = date_from_ts(event.trigger_timestamp)
     option_type = option_type_for_direction(event.direction)
 
-    underlying_price = event.breakout_price
+    candidates = [
+        candle
+        for candle in underlying_candles
+        if candle.timestamp <= event.trigger_timestamp
+    ]
+    if not candidates:
+        raise LookupError("no underlying candle at or before signal timestamp")
+    underlying_price = max(candidates, key=lambda candle: candle.timestamp).close
     strike = resolver.calculate_atm_strike(underlying_price)
 
     # Resolver V2 selects the nearest eligible expiry from its instrument table.
@@ -259,7 +267,7 @@ def main() -> None:
             )
             for event in signals:
                 try:
-                    required.append(resolve_required(resolver, event))
+                    required.append(resolve_required(resolver, event, candles))
                 except LookupError as exc:
                     print(
                         f"[UNRESOLVED] date={session_date} ts={event.trigger_timestamp} "

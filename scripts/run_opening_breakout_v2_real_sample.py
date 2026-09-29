@@ -24,7 +24,7 @@ from backtest.opening_breakout_v2_option_integration import run_opening_breakout
 from backtest.opening_breakout_v2_signal_engine import SignalSeries, scan_series
 from config.settings import DATABASE_PATH
 from execution.opening_breakout_v2_execution import V2ExecutionPolicy
-from research.opening_breakout_1m_v2 import Candle, V2Config
+from research.opening_breakout_1m_v2 import Candle, IndicatorSnapshot, V2Config
 from strategies.option_contract_resolver import OptionContractResolver
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -50,8 +50,15 @@ def load_nifty_candles(database_path: Path, start_ts: int, end_ts: int) -> list[
             (start_ts, end_ts),
         ).fetchall()
 
-    return [Candle(int(ts), float(op), float(hi), float(lo), float(cl))
-            for ts, op, hi, lo, cl in rows]
+    return [
+        Candle(int(ts), float(op), float(hi), float(lo), float(cl))
+        for ts, op, hi, lo, cl in rows
+    ]
+
+
+def empty_indicator_provider(timestamp: int, candle: Candle) -> IndicatorSnapshot:
+    """No optional indicator confirmations are enabled in this sample."""
+    return IndicatorSnapshot()
 
 
 def build_option_event_series(candles: list[Candle], *, option_type: str) -> SignalSeries:
@@ -93,9 +100,10 @@ def main() -> None:
         capital_allocation_percent=100.0,
     )
 
-    signals = scan_series(
+    alerts, signals = scan_series(
         build_option_event_series(underlying, option_type="CE"),
         config=config,
+        indicator_provider=empty_indicator_provider,
     )
 
     resolver = OptionContractResolver(database_path=DATABASE_PATH)
@@ -105,6 +113,7 @@ def main() -> None:
     print("KUNAL QUANT — OPENING BREAKOUT V2 REAL HISTORICAL SAMPLE")
     print("=" * 90)
     print(f"NIFTY candles : {len(underlying)}")
+    print(f"Opening alerts: {len(alerts)}")
     print(f"Signals       : {len(signals)}")
 
     closed = 0

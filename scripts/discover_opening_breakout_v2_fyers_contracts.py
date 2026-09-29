@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
@@ -22,6 +23,8 @@ def main() -> None:
     parser.add_argument("--limit-expiries", type=int, default=1)
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--output", default="opening_breakout_v2_fyers_contract_discovery.json")
+    parser.add_argument("--max-retries", type=int, default=6)
+    parser.add_argument("--backoff-seconds", type=float, default=5.0)
     args = parser.parse_args()
 
     manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
@@ -39,6 +42,15 @@ def main() -> None:
         expiries = expiries[:args.limit_expiries]
 
     discovery = FyersHistoricalContractDiscovery()
+    output_path = Path(args.output)
+    existing = {}
+    if output_path.exists():
+        try:
+            prior = json.loads(output_path.read_text(encoding="utf-8"))
+            existing = {item["expiry_date"]: item for item in prior.get("results", [])}
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+
     results = []
     total_requested = 0
     total_found = 0
@@ -53,10 +65,30 @@ def main() -> None:
     for expiry_text in expiries:
         requested = requested_by_expiry[expiry_text]
         requested_keys = {(x["strike"], x["option_type"]) for x in requested}
-        total_requested += len(requested_keys)
 
+        if expiry_text in existing:
+            item = existing[expiry_text]
+            results.append(item)
+            total_requested += len(requested_keys)
+            total_found += len(item.get("found", []))
+            print(f"\nSkipping checkpointed expiry {expiry_text} ...")
+            print(f"  Found exact tuples       : {len(item.get("found", []))}")
+            continue
+
+        total_requested += len(requested_keys)
         print(f"\nChecking expiry {expiry_text} ...")
-        contracts = discovery.discover_expiry(date.fromisoformat(expiry_text))
+
+        for attempt in range(args.max_retries + 1):
+            try:
+                contracts = discovery.discover_expiry(date.fromisoformat(expiry_text))
+                break
+            except RuntimeError as exc:
+                if "429" not in str(exc) or attempt >= args.max_retries:
+                    raise
+                delay = args.backoff_seconds * (2 ** attempt)
+                print(f"  FYERS rate limit (429); retry {attempt + 1}/{args.max_retries} after {delay:.1f}s")
+                time.sleep(delay)
+
         found_by_key = {}
         if args.debug:
             print("  First 10 normalized FYERS contracts:")
@@ -99,6 +131,22 @@ def main() -> None:
             "missing": missing,
             "returned_contract_count": len(contracts),
         })
+
+        checkpoint = {
+            "schema_version": 1,
+            "source": "OPENING_BREAKOUT_V2_OPTION_ACQUISITION_MANIFEST",
+            "read_only": True,
+            "resumable": True,
+            "expiry_dates_checked": len(results),
+            "requested_tuples": total_requested,
+            "found_tuples": total_found,
+            "missing_tuples": total_requested - total_found,
+            "results": sorted(results, key=lambda item: item["expiry_date"]),
+        }
+        output_path.write_text(
+            json.dumps(checkpoint, indent=2, default=str),
+            encoding="utf-8",
+        )
 
     report = {
         "schema_version": 1,

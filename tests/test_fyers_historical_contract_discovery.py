@@ -81,3 +81,11 @@ def test_discovery_script_source_contains_resumable_rate_limit_controls():
     assert "--backoff-seconds" in source
     assert "429" in source
     assert "resumable" in source
+
+
+def test_discovery_script_source_contains_targeted_expiry_debug_controls():
+    source = open("scripts/discover_opening_breakout_v2_fyers_contracts.py", encoding="utf-8").read()
+    assert "--start-expiry" in source
+    assert "Requested tuples:" in source
+    assert "Parsed strike range" in source
+    assert "+/-500" in source

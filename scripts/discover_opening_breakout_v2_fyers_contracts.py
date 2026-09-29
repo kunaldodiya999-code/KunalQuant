@@ -21,6 +21,7 @@ def main() -> None:
     )
     parser.add_argument("--manifest", default="opening_breakout_v2_option_acquisition_manifest.json")
     parser.add_argument("--limit-expiries", type=int, default=1)
+    parser.add_argument("--start-expiry", default=None, help="Only process expiries on/after YYYY-MM-DD")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--output", default="opening_breakout_v2_fyers_contract_discovery.json")
     parser.add_argument("--max-retries", type=int, default=6)
@@ -38,6 +39,9 @@ def main() -> None:
         )
 
     expiries = sorted(requested_by_expiry)
+    if args.start_expiry:
+        start_expiry = date.fromisoformat(args.start_expiry)
+        expiries = [expiry for expiry in expiries if date.fromisoformat(expiry) >= start_expiry]
     if args.limit_expiries > 0:
         expiries = expiries[:args.limit_expiries]
 
@@ -61,6 +65,8 @@ def main() -> None:
     print("READ-ONLY: no database registration, no candle downloads")
     print(f"Manifest contracts requiring discovery : {len(manifest['contracts'])}")
     print(f"Expiry dates selected                  : {len(expiries)}")
+    if args.start_expiry:
+        print(f"Start expiry filter                     : {args.start_expiry}")
 
     for expiry_text in expiries:
         requested = requested_by_expiry[expiry_text]
@@ -91,9 +97,26 @@ def main() -> None:
 
         found_by_key = {}
         if args.debug:
-            print("  First 10 normalized FYERS contracts:")
-            for sample in contracts[:10]:
+            print("  Requested tuples:")
+            for strike, option_type in sorted(requested_keys):
+                print(f"    {strike:g} {option_type}")
+            print("  First 20 normalized FYERS contracts:")
+            for sample in contracts[:20]:
                 print("   ", repr(sample))
+            typed = [contract for contract in contracts if contract.get("option_type") in {"CE", "PE"}]
+            parsed = [contract for contract in typed if contract.get("strike") is not None]
+            print(f"  Parsed option contracts      : {len(parsed)}/{len(typed)}")
+            if parsed:
+                strikes = sorted({float(contract["strike"]) for contract in parsed})
+                print(f"  Parsed strike range          : {strikes[0]:g} .. {strikes[-1]:g}")
+                near = [
+                    contract
+                    for contract in parsed
+                    if any(abs(float(contract["strike"]) - wanted_strike) <= 500 for wanted_strike, _ in requested_keys)
+                ]
+                print("  Contracts within +/-500 points of requested strikes:")
+                for sample in near[:40]:
+                    print("   ", repr(sample))
 
         for contract in contracts:
             symbol = contract.get("symbol")

@@ -151,7 +151,7 @@ def main() -> None:
             ],
             "missing": missing,
             "returned_contract_count": len(contracts),
-        })
+        }
 
         checkpoint = {
             "schema_version": 1,

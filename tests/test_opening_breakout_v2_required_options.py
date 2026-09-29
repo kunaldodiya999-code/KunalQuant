@@ -6,6 +6,7 @@ from scripts.audit_opening_breakout_v2_required_options import (
     RequiredContract,
     audit_coverage,
     option_type_for_direction,
+    trigger_for_instrument,
 )
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -47,6 +48,11 @@ def session_ts(minute_index):
 def test_direction_maps_to_option_type():
     assert option_type_for_direction("LONG") == "CE"
     assert option_type_for_direction("SHORT") == "PE"
+
+
+def test_direction_uses_matching_breakout_trigger():
+    assert trigger_for_instrument("CALL") == "CANDLE_HIGH"
+    assert trigger_for_instrument("PUT") == "CANDLE_LOW"
 
 
 def test_required_option_coverage_classifies_complete_partial_empty_and_unregistered(tmp_path):

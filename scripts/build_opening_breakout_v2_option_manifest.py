@@ -9,8 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import DATABASE_PATH
 from scripts.audit_opening_breakout_v2_required_options import (
@@ -23,11 +28,7 @@ from scripts.audit_opening_breakout_v2_required_options import (
 from strategies.option_contract_resolver import OptionContractResolver
 
 
-def build_required(
-    database_path: Path,
-    start_ts: int,
-    end_ts: int,
-) -> list:
+def build_required(database_path: Path, start_ts: int, end_ts: int) -> list:
     nifty = load_nifty(database_path, start_ts, end_ts)
     if not nifty:
         raise RuntimeError("No NIFTY 1-minute candles found in requested range.")
@@ -137,10 +138,7 @@ def build_manifest(database_path: Path, required: list) -> dict:
             "missing_contract_days": missing_days,
             "unique_contracts": len(contracts),
         },
-        "contracts": [
-            contracts[key]
-            for key in sorted(contracts)
-        ],
+        "contracts": [contracts[key] for key in sorted(contracts)],
     }
 
 
@@ -164,10 +162,7 @@ def main() -> None:
             epoch_seconds(args.end),
         ),
     )
-    args.output.write_text(
-        json.dumps(manifest, indent=2),
-        encoding="utf-8",
-    )
+    args.output.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     print("=" * 110)
     print("KUNAL QUANT — OPENING BREAKOUT V2 OPTION ACQUISITION MANIFEST")

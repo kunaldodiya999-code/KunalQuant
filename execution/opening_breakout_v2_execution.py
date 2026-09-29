@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from execution.opening_breakout_state import OrderIntent
-from research.opening_breakout_1m_v2 import Direction, Signal, TradeInstrument, entry_limit_price, sl_trigger_limit_price
+from research.opening_breakout_1m_v2 import Signal
 
 
 @dataclass(frozen=True)
@@ -78,7 +78,11 @@ def build_entry_intent(
     return OrderIntent(
         side=entry_side(signal),
         quantity=quantity,
-        limit_price=entry_limit_price(ltp, signal.direction, policy.entry_buffer_points),
+        limit_price=(
+            ltp + policy.entry_buffer_points
+            if entry_side(signal) == "BUY"
+            else ltp - policy.entry_buffer_points
+        ),
         reason="OPENING_BREAKOUT_ENTRY",
     )
 
@@ -96,10 +100,10 @@ def build_exit_intent(
     return OrderIntent(
         side=exit_side(signal),
         quantity=quantity,
-        limit_price=sl_trigger_limit_price(
-            trigger_price,
-            direction,
-            policy.exit_buffer_points,
+        limit_price=(
+            trigger_price - policy.exit_buffer_points
+            if exit_side(signal) == "SELL"
+            else trigger_price + policy.exit_buffer_points
         ),
         reason=reason,
     )

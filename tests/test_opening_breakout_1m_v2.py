@@ -95,7 +95,7 @@ def test_ktmi_call_defaults_and_thresholds():
 
 
 def test_dmi_put_requires_minus_di_and_adx():
-    candle = Candle(1, 100, 105, 90, 92)
+    candle = Candle(1, 105, 105, 90, 92)
     indicators = IndicatorSnapshot(minus_di=25, adx=25)
     config = V2Config(
         filter_open_high=True,

@@ -15,7 +15,7 @@ import sqlite3
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -103,7 +103,6 @@ def resolve_required(
     underlying_price = max(candidates, key=lambda candle: candle.timestamp).close
     strike = resolver.calculate_atm_strike(underlying_price)
 
-    # Resolver V2 selects the nearest eligible expiry from its instrument table.
     expiry = resolver.find_nearest_expiry(
         entry_date=signal_date,
         option_type=option_type,
@@ -153,22 +152,25 @@ def audit_coverage(
 
     results = []
     with sqlite3.connect(database_path) as db:
-        for item in sorted(unique.values(), key=lambda x: (
-            x.signal_date, x.expiry_date, x.strike, x.option_type
-        )):
+        for item in sorted(
+            unique.values(),
+            key=lambda x: (x.signal_date, x.expiry_date, x.strike, x.option_type),
+        ):
             if item.instrument_id is None:
-                results.append({
-                    "signal_date": item.signal_date,
-                    "expiry_date": item.expiry_date,
-                    "strike": item.strike,
-                    "option_type": item.option_type,
-                    "instrument_id": None,
-                    "symbol": None,
-                    "status": "UNREGISTERED",
-                    "candles": 0,
-                    "first_ts": None,
-                    "last_ts": None,
-                })
+                results.append(
+                    {
+                        "signal_date": item.signal_date,
+                        "expiry_date": item.expiry_date,
+                        "strike": item.strike,
+                        "option_type": item.option_type,
+                        "instrument_id": None,
+                        "symbol": None,
+                        "status": "UNREGISTERED",
+                        "candles": 0,
+                        "first_ts": None,
+                        "last_ts": None,
+                    }
+                )
                 continue
 
             row = db.execute(
@@ -183,27 +185,43 @@ def audit_coverage(
                 (
                     item.instrument_id,
                     SOURCE,
-                    int(datetime.combine(item.signal_date, datetime.min.time(), tzinfo=IST).timestamp()),
-                    int(datetime.combine(item.signal_date, datetime.max.time(), tzinfo=IST).timestamp()),
+                    int(
+                        datetime.combine(
+                            item.signal_date,
+                            datetime.min.time(),
+                            tzinfo=IST,
+                        ).timestamp()
+                    ),
+                    int(
+                        datetime.combine(
+                            item.signal_date,
+                            datetime.max.time(),
+                            tzinfo=IST,
+                        ).timestamp()
+                    ),
                 ),
             ).fetchone()
 
             count, first_ts, last_ts = row
-            status = "COMPLETE" if int(count or 0) >= EXPECTED_1M_CANDLES else (
-                "EMPTY" if not count else "PARTIAL"
+            status = (
+                "COMPLETE"
+                if int(count or 0) >= EXPECTED_1M_CANDLES
+                else ("EMPTY" if not count else "PARTIAL")
             )
-            results.append({
-                "signal_date": item.signal_date,
-                "expiry_date": item.expiry_date,
-                "strike": item.strike,
-                "option_type": item.option_type,
-                "instrument_id": item.instrument_id,
-                "symbol": item.symbol,
-                "status": status,
-                "candles": int(count or 0),
-                "first_ts": first_ts,
-                "last_ts": last_ts,
-            })
+            results.append(
+                {
+                    "signal_date": item.signal_date,
+                    "expiry_date": item.expiry_date,
+                    "strike": item.strike,
+                    "option_type": item.option_type,
+                    "instrument_id": item.instrument_id,
+                    "symbol": item.symbol,
+                    "status": status,
+                    "candles": int(count or 0),
+                    "first_ts": first_ts,
+                    "last_ts": last_ts,
+                }
+            )
     return results
 
 
@@ -211,7 +229,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--from", dest="start", required=True, help="IST datetime")
     parser.add_argument("--to", dest="end", required=True, help="IST datetime")
-    parser.add_argument("--instrument", choices=("CALL", "PUT", "BOTH"), default="CALL")
+    parser.add_argument(
+        "--instrument",
+        choices=("CALL", "PUT", "BOTH"),
+        default="CALL",
+    )
     parser.add_argument("--database", type=Path, default=DATABASE_PATH)
     args = parser.parse_args()
 
@@ -221,8 +243,8 @@ def main() -> None:
     if not nifty:
         raise RuntimeError("No NIFTY 1-minute candles found in requested range.")
 
-    config = V2Config(
-        trade_instrument="CALL" if args.instrument != "PUT" else "PUT",
+    base_config = V2Config(
+        trade_instrument="CALL",
         market_bias="NEUTRAL",
         selected_timeframes=("1M",),
         selected_triggers=("CANDLE_HIGH",),
@@ -242,14 +264,19 @@ def main() -> None:
     print(f"Sessions      : {len(sessions)}")
     print(f"Instrument    : {args.instrument}")
 
-    for session_date, candles in sessions.items():
-        candidates = []
-        if args.instrument in ("CALL", "BOTH"):
-            candidates.append(("CE", "CALL"))
-        if args.instrument in ("PUT", "BOTH"):
-            candidates.append(("PE", "PUT"))
+    instruments = (
+        ("CALL", "CE", "CANDLE_HIGH"),
+        ("PUT", "PE", "CANDLE_LOW"),
+    )
+    if args.instrument == "BOTH":
+        candidates = instruments
+    elif args.instrument == "CALL":
+        candidates = (instruments[0],)
+    else:
+        candidates = (instruments[1],)
 
-        for option_type, instrument in candidates:
+    for session_date, candles in sessions.items():
+        for instrument, option_type, trigger in candidates:
             series = SignalSeries(
                 symbol="NIFTY-V2-CANDIDATE",
                 option_type=option_type,
@@ -258,7 +285,11 @@ def main() -> None:
                 candles=candles,
             )
             session_config = V2Config(
-                **{**config.__dict__, "trade_instrument": instrument}
+                **{
+                    **base_config.__dict__,
+                    "trade_instrument": instrument,
+                    "selected_triggers": (trigger,),
+                }
             )
             _, signals = scan_series(
                 series,

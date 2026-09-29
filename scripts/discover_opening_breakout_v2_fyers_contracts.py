@@ -22,6 +22,7 @@ def main() -> None:
     parser.add_argument("--manifest", default="opening_breakout_v2_option_acquisition_manifest.json")
     parser.add_argument("--limit-expiries", type=int, default=1)
     parser.add_argument("--start-expiry", default=None, help="Only process expiries on/after YYYY-MM-DD")
+    parser.add_argument("--refresh-expiry", action="store_true", help="Re-query selected expiry dates even if checkpointed")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--output", default="opening_breakout_v2_fyers_contract_discovery.json")
     parser.add_argument("--max-retries", type=int, default=6)
@@ -67,12 +68,14 @@ def main() -> None:
     print(f"Expiry dates selected                  : {len(expiries)}")
     if args.start_expiry:
         print(f"Start expiry filter                     : {args.start_expiry}")
+    if args.refresh_expiry:
+        print("Checkpoint behavior                     : refresh selected expiries")
 
     for expiry_text in expiries:
         requested = requested_by_expiry[expiry_text]
         requested_keys = {(x["strike"], x["option_type"]) for x in requested}
 
-        if expiry_text in existing:
+        if expiry_text in existing and not args.refresh_expiry:
             item = existing[expiry_text]
             results.append(item)
             total_requested += len(requested_keys)

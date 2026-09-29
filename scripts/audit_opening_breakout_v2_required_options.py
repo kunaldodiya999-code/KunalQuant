@@ -85,6 +85,10 @@ def option_type_for_direction(direction: str) -> str:
     return "CE" if direction == "LONG" else "PE"
 
 
+def trigger_for_instrument(instrument: str) -> str:
+    return "CANDLE_HIGH" if instrument == "CALL" else "CANDLE_LOW"
+
+
 def resolve_required(
     resolver: OptionContractResolver,
     event,
@@ -265,8 +269,8 @@ def main() -> None:
     print(f"Instrument    : {args.instrument}")
 
     instruments = (
-        ("CALL", "CE", "CANDLE_HIGH"),
-        ("PUT", "PE", "CANDLE_LOW"),
+        ("CALL", "CE", trigger_for_instrument("CALL")),
+        ("PUT", "PE", trigger_for_instrument("PUT")),
     )
     if args.instrument == "BOTH":
         candidates = instruments

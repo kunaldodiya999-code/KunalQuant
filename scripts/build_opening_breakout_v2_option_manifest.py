@@ -72,8 +72,19 @@ def build_required(database_path: Path, start_ts: int, end_ts: int) -> list:
     return required
 
 
-def build_manifest(database_path: Path, required: list) -> dict:
-    results = audit_coverage(database_path, required)
+def build_manifest(
+    database_path: Path,
+    required: list,
+    expected_candles_by_date: dict | None = None,
+) -> dict:
+    if expected_candles_by_date is None:
+        results = audit_coverage(database_path, required)
+    else:
+        results = audit_coverage(
+            database_path,
+            required,
+            expected_candles_by_date=expected_candles_by_date,
+        )
 
     contracts = defaultdict(
         lambda: {
@@ -154,13 +165,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    start_ts = epoch_seconds(args.start)
+    end_ts = epoch_seconds(args.end)
+    nifty = load_nifty(args.database, start_ts, end_ts)
+    required = build_required(args.database, start_ts, end_ts)
+    expected_candles_by_date = {
+        day: len(candles) for day, candles in session_groups(nifty).items()
+    }
+
     manifest = build_manifest(
         args.database,
-        build_required(
-            args.database,
-            epoch_seconds(args.start),
-            epoch_seconds(args.end),
-        ),
+        required,
+        expected_candles_by_date=expected_candles_by_date,
     )
     args.output.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 

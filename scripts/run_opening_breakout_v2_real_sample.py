@@ -173,6 +173,16 @@ def main() -> None:
             )
         else:
             rejected += 1
+            print(
+                f"[REJECTED] status={trade.status} "
+                f"contract={trade.contract.symbol} "
+                f"option_signal={trade.option_signal_price:.2f} "
+                f"entry_reason={trade.entry.reason} "
+                f"entry_ts={trade.entry.timestamp} "
+                f"entry_price={trade.entry.price} "
+                f"stop={trade.stop_price} "
+                f"target={trade.target_price}"
+            )
 
     print("-" * 90)
     print(f"Closed trades : {closed}")

@@ -99,6 +99,8 @@ def main() -> None:
     print(f"Closed trades : {result.closed}")
     print(f"Rejected      : {result.rejected}")
     print(f"Gross P&L     : {result.gross_pnl:.2f}")
+    print(f"Total costs   : {result.total_costs:.2f}")
+    print(f"Net P&L       : {result.net_pnl:.2f}")
     print("-" * 90)
 
     for trade in result.trades:

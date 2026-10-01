@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +22,7 @@ if str(ROOT) not in sys.path:
 from typing import Any
 
 from config.settings import DATABASE_PATH
+from backtest.opening_breakout_v2_historical_lot_size import historical_nifty_lot_size
 from downloader.historical import HistoricalDownloader
 from scripts.acquire_required_nifty_options import _register_instrument
 
@@ -109,12 +111,19 @@ def acquire_plan(
     }
 
     for item in plan:
+        signal_date = date.fromisoformat(item["required_dates"][0])
+        expiry_date = date.fromisoformat(item["expiry_date"])
+        lot_size = historical_nifty_lot_size(
+            signal_date=signal_date,
+            expiry_date=expiry_date,
+        )
         instrument_id = _register_instrument(
             database_path,
             item["symbol"],
             item["expiry_date"],
             int(item["strike"]),
             item["option_type"],
+            lot_size=lot_size,
         )
 
         for trading_date in item["required_dates"]:

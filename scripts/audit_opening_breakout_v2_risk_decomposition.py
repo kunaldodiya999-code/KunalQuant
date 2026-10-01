@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from backtest.broker_cost_model import calculate_options_trade_costs, fyers_options_profile
+from backtest.opening_breakout_v2_economic_attribution import attribute_trade_economics
 from backtest.fyers_option_candles import FyersOptionCandleLoader
 from backtest.opening_breakout_v2_multi_session import run_multi_session_backtest
 from config.settings import DATABASE_PATH
@@ -54,96 +54,52 @@ def empty_indicator_provider(timestamp: int, candle: Candle) -> IndicatorSnapsho
     return IndicatorSnapshot()
 
 
-def trade_cost(trade) -> object:
-    profile = fyers_options_profile(
-        datetime.fromtimestamp(trade.event.trigger_timestamp, tz=IST).date()
-    )
-    return calculate_options_trade_costs(
-        entry_price=trade.entry.price,
-        exit_price=trade.exit.price,
-        quantity=trade.quantity,
-        profile=profile,
-        gross_pnl=trade.gross_pnl,
-    )
-
-
 def decompose_trade(trade, entry_buffer: float, exit_buffer: float, intended_risk: float) -> dict:
-    qty = trade.quantity
-    entry = float(trade.entry.price)
-    signal = float(trade.option_signal_price)
-    stop = float(trade.stop_price)
-    target = float(trade.target_price)
-    exit_price = float(trade.exit.price)
-
-    # Strategy outcome starts from the option signal price. Entry execution
-    # impact then captures the difference between signal and actual fill.
-    exit_reason = trade.exit.reason
-    if exit_reason == "STOP_LOSS":
-        theoretical_exit = stop
-        theoretical_label = "STOP"
-    elif exit_reason == "TARGET":
-        theoretical_exit = target
-        theoretical_label = "TARGET"
-    else:
-        theoretical_exit = None
-        theoretical_label = "UNAVAILABLE"
-
-    multiplier = 1.0 if trade.event.direction == "LONG" else -1.0
-    theoretical_strategy_pnl = (
-        (theoretical_exit - signal) * qty * multiplier
-        if theoretical_exit is not None
-        else None
+    attribution = attribute_trade_economics(
+        trade,
+        intended_risk=intended_risk,
+        trade_date=datetime.fromtimestamp(
+            trade.event.trigger_timestamp, tz=IST
+        ).date(),
     )
-    # Positive impact means execution improved the outcome; adverse entry
-    # slippage therefore appears negative.
-    entry_execution_impact = (signal - entry) * qty * multiplier
-
-    if theoretical_exit is not None:
-        exit_execution_impact = (exit_price - theoretical_exit) * qty * multiplier
-        execution_adjusted_from_signal = (
-            theoretical_strategy_pnl + entry_execution_impact + exit_execution_impact
-        )
-    else:
-        exit_execution_impact = None
-        execution_adjusted_from_signal = None
-
-    costs = trade_cost(trade)
-    strategy_risk = abs(entry - stop) * qty
-    realized_r = trade.gross_pnl / strategy_risk if strategy_risk > 0 else 0.0
-    net_r = costs.net_pnl / strategy_risk if strategy_risk > 0 else 0.0
-
+    theoretical_label = (
+        "STOP"
+        if attribution.exit_reason == "STOP_LOSS"
+        else "TARGET"
+        if attribution.exit_reason == "TARGET"
+        else "UNAVAILABLE"
+    )
     return {
-        "signal": signal,
-        "entry": entry,
-        "stop": stop,
-        "target": target,
-        "exit": exit_price,
-        "qty": qty,
-        "exit_reason": exit_reason,
-        "theoretical_exit": theoretical_exit,
+        "signal": attribution.signal_price,
+        "entry": attribution.entry_price,
+        "stop": attribution.stop_price,
+        "target": attribution.target_price,
+        "exit": attribution.exit_price,
+        "qty": attribution.quantity,
+        "exit_reason": attribution.exit_reason,
+        "theoretical_exit": attribution.theoretical_exit,
         "theoretical_label": theoretical_label,
-        "theoretical_strategy_pnl": theoretical_strategy_pnl,
-        "entry_execution_impact": entry_execution_impact,
-        "exit_execution_impact": exit_execution_impact,
-        "gross_pnl": trade.gross_pnl,
-        "cost": costs.total_cost,
-        "brokerage": costs.brokerage,
-        "exchange_transaction": costs.exchange_transaction,
-        "stt": costs.stt,
-        "sebi": costs.sebi,
-        "stamp_duty": costs.stamp_duty,
-        "ipft": costs.ipft,
-        "gst": costs.gst,
-        "net_pnl": costs.net_pnl,
-        "intended_risk": intended_risk,
-        "strategy_risk": strategy_risk,
-        "realized_r": realized_r,
-        "net_r": net_r,
-        "execution_adjusted_from_signal": execution_adjusted_from_signal,
+        "theoretical_strategy_pnl": attribution.theoretical_strategy_pnl,
+        "entry_execution_impact": attribution.entry_execution_impact,
+        "exit_execution_impact": attribution.exit_execution_impact,
+        "gross_pnl": attribution.gross_pnl,
+        "cost": attribution.total_cost,
+        "brokerage": attribution.brokerage,
+        "exchange_transaction": attribution.exchange_transaction,
+        "stt": attribution.stt,
+        "sebi": attribution.sebi,
+        "stamp_duty": attribution.stamp_duty,
+        "ipft": attribution.ipft,
+        "gst": attribution.gst,
+        "net_pnl": attribution.net_pnl,
+        "intended_risk": attribution.intended_risk,
+        "strategy_risk": attribution.strategy_risk,
+        "realized_r": attribution.realized_r,
+        "net_r": attribution.net_r,
+        "execution_adjusted_from_signal": attribution.execution_adjusted_from_signal,
         "entry_buffer": entry_buffer,
         "exit_buffer": exit_buffer,
     }
-
 
 def summarize(rows: list[dict]) -> dict:
     def total(key: str) -> float:

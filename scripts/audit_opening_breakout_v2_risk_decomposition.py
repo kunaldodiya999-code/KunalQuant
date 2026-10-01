@@ -75,8 +75,8 @@ def decompose_trade(trade, entry_buffer: float, exit_buffer: float, intended_ris
     target = float(trade.target_price)
     exit_price = float(trade.exit.price)
 
-    # Strategy outcome uses the actual filled entry and the configured
-    # strategy stop/target, before execution-buffer effects.
+    # Strategy outcome starts from the option signal price. Entry execution
+    # impact then captures the difference between signal and actual fill.
     exit_reason = trade.exit.reason
     if exit_reason == "STOP_LOSS":
         theoretical_exit = stop
@@ -90,11 +90,13 @@ def decompose_trade(trade, entry_buffer: float, exit_buffer: float, intended_ris
 
     multiplier = 1.0 if trade.event.direction == "LONG" else -1.0
     theoretical_strategy_pnl = (
-        (theoretical_exit - entry) * qty * multiplier
+        (theoretical_exit - signal) * qty * multiplier
         if theoretical_exit is not None
         else None
     )
-    entry_execution_impact = (entry - signal) * qty * multiplier
+    # Positive impact means execution improved the outcome; adverse entry
+    # slippage therefore appears negative.
+    entry_execution_impact = (signal - entry) * qty * multiplier
 
     if theoretical_exit is not None:
         exit_execution_impact = (exit_price - theoretical_exit) * qty * multiplier

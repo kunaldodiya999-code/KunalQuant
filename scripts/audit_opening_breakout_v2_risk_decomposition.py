@@ -127,6 +127,13 @@ def decompose_trade(trade, entry_buffer: float, exit_buffer: float, intended_ris
         "exit_execution_impact": exit_execution_impact,
         "gross_pnl": trade.gross_pnl,
         "cost": costs.total_cost,
+        "brokerage": costs.brokerage,
+        "exchange_transaction": costs.exchange_transaction,
+        "stt": costs.stt,
+        "sebi": costs.sebi,
+        "stamp_duty": costs.stamp_duty,
+        "ipft": costs.ipft,
+        "gst": costs.gst,
         "net_pnl": costs.net_pnl,
         "intended_risk": intended_risk,
         "strategy_risk": strategy_risk,
@@ -173,6 +180,13 @@ def summarize(rows: list[dict]) -> dict:
         "count": len(rows),
         "gross": total("gross_pnl"),
         "cost": total("cost"),
+        "brokerage": total("brokerage"),
+        "exchange_transaction": total("exchange_transaction"),
+        "stt": total("stt"),
+        "sebi": total("sebi"),
+        "stamp_duty": total("stamp_duty"),
+        "ipft": total("ipft"),
+        "gst": total("gst"),
         "net": total("net_pnl"),
         "theoretical_strategy": theoretical_strategy,
         "entry_impact_known": known_entry_impact,
@@ -253,6 +267,13 @@ def main() -> None:
     print(f"Force-exit residual from entry: {summary['force_exit_residual']:.2f}")
     print(f"Gross P&L                     : {summary['gross']:.2f}")
     print(f"Broker costs                  : {summary['cost']:.2f}")
+    print(f"  Brokerage                   : {summary['brokerage']:.2f}")
+    print(f"  Exchange transaction        : {summary['exchange_transaction']:.2f}")
+    print(f"  STT                         : {summary['stt']:.2f}")
+    print(f"  SEBI                        : {summary['sebi']:.2f}")
+    print(f"  Stamp duty                  : {summary['stamp_duty']:.2f}")
+    print(f"  IPFT                        : {summary['ipft']:.2f}")
+    print(f"  GST                         : {summary['gst']:.2f}")
     print(f"Net P&L                       : {summary['net']:.2f}")
     print(f"Average cost / trade          : {summary['avg_cost']:.2f}")
     print()
@@ -281,7 +302,10 @@ def main() -> None:
             f"{row['exit_reason']} theoretical={fmt(row['theoretical_strategy_pnl'])} "
             f"entry_impact={row['entry_execution_impact']:.2f} "
             f"exit_impact={fmt(row['exit_execution_impact'])} "
-            f"gross={row['gross_pnl']:.2f} cost={row['cost']:.2f} net={row['net_pnl']:.2f} "
+            f"gross={row['gross_pnl']:.2f} cost={row['cost']:.2f} "
+            f"brokerage={row['brokerage']:.2f} exchange={row['exchange_transaction']:.2f} "
+            f"stt={row['stt']:.2f} sebi={row['sebi']:.2f} stamp={row['stamp_duty']:.2f} "
+            f"ipft={row['ipft']:.2f} gst={row['gst']:.2f} net={row['net_pnl']:.2f} "
             f"realized_R={row['realized_r']:.3f} net_R={row['net_r']:.3f}"
         )
 

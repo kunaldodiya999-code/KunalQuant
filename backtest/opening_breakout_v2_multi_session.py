@@ -22,6 +22,7 @@ from backtest.opening_breakout_v2_signal_engine import (
     SignalSeries,
     scan_series,
 )
+from backtest.portfolio_accounting import EquityPoint, build_equity_curve
 from execution.opening_breakout_v2_execution import V2ExecutionPolicy
 from research.opening_breakout_1m_v2 import Candle, IndicatorSnapshot, V2Config
 from strategies.option_contract_resolver import OptionContractResolver
@@ -36,9 +37,18 @@ class MultiSessionResult:
     signals: int
     closed: int
     rejected: int
+    initial_capital: float
+    ending_equity: float
+    peak_equity: float
+    max_drawdown: float
+    max_drawdown_pct: float
+    wins: int
+    losses: int
+    win_rate_pct: float
     gross_pnl: float
     total_costs: float
     net_pnl: float
+    equity_curve: tuple[EquityPoint, ...]
     trades: tuple[ResolvedOpeningBreakoutTrade, ...]
 
 
@@ -65,7 +75,12 @@ def run_multi_session_backtest(
     capital: float,
     indicator_provider: IndicatorProvider,
 ) -> MultiSessionResult:
+    if capital <= 0:
+        raise ValueError("capital must be positive")
+
     trades: list[ResolvedOpeningBreakoutTrade] = []
+    equity_inputs: list[tuple[int, float, float]] = []
+    current_capital = float(capital)
     sessions = 0
     signals = 0
     rejected = 0
@@ -103,7 +118,7 @@ def run_multi_session_backtest(
                     option_loader=option_loader,
                     config=config,
                     execution_policy=execution_policy,
-                    capital=capital,
+                    capital=current_capital,
                     force_exit_timestamp=force_exit,
                 )
             except Exception:
@@ -113,32 +128,48 @@ def run_multi_session_backtest(
             trades.append(trade)
             if trade.status != "CLOSED":
                 rejected += 1
+                continue
 
-    closed = sum(1 for trade in trades if trade.status == "CLOSED")
-    gross_pnl = sum(
-        trade.gross_pnl for trade in trades if trade.status == "CLOSED"
-    )
-    total_costs = 0.0
-    for trade in trades:
-        if trade.status == "CLOSED":
             breakdown = calculate_options_trade_costs(
                 entry_price=trade.entry.price,
                 exit_price=trade.exit.price,
                 quantity=trade.quantity,
-                profile=fyers_options_profile(session_date(trade.event.trigger_timestamp)),
+                profile=fyers_options_profile(
+                    session_date(trade.event.trigger_timestamp)
+                ),
                 gross_pnl=trade.gross_pnl,
             )
-            total_costs += breakdown.total_cost
-    net_pnl = gross_pnl - total_costs
+            equity_inputs.append(
+                (
+                    trade.exit.timestamp or trade.event.trigger_timestamp,
+                    trade.gross_pnl,
+                    breakdown.total_cost,
+                )
+            )
+            current_capital += trade.gross_pnl - breakdown.total_cost
+
+    accounting = build_equity_curve(
+        initial_capital=capital,
+        trades=equity_inputs,
+    )
 
     return MultiSessionResult(
         sessions=sessions,
         signals=signals,
-        closed=closed,
+        closed=len(equity_inputs),
         rejected=rejected,
-        gross_pnl=gross_pnl,
-        total_costs=total_costs,
-        net_pnl=net_pnl,
+        initial_capital=accounting.initial_capital,
+        ending_equity=accounting.ending_equity,
+        peak_equity=accounting.peak_equity,
+        max_drawdown=accounting.max_drawdown,
+        max_drawdown_pct=accounting.max_drawdown_pct,
+        wins=accounting.wins,
+        losses=accounting.losses,
+        win_rate_pct=accounting.win_rate_pct,
+        gross_pnl=accounting.gross_pnl,
+        total_costs=accounting.total_costs,
+        net_pnl=accounting.net_pnl,
+        equity_curve=accounting.equity_curve,
         trades=tuple(trades),
     )
 

@@ -197,28 +197,6 @@ def run_opening_breakout_trade(
         event.trigger_timestamp,
     )
 
-    distance = (
-        signal_price - event.breakout_price
-        if event.direction == "LONG"
-        else event.breakout_price - signal_price
-    )
-    if distance > execution_policy.max_slippage_points:
-        return ResolvedOpeningBreakoutTrade(
-            event,
-            contract,
-            underlying_price,
-            signal_price,
-            0,
-            0,
-            FillResult(False, None, None, "SLIPPAGE_REJECTED"),
-            FillResult(False, None, None, "NO_EXIT"),
-            None,
-            None,
-            None,
-            0.0,
-            "REJECTED",
-        )
-
     entry = simulate_limit_fill(
         option_bars,
         start_after_timestamp=event.trigger_timestamp,
@@ -226,6 +204,29 @@ def run_opening_breakout_trade(
         limit_price=signal_price + execution_policy.entry_buffer_points,
         timeout_seconds=execution_policy.fill_timeout_seconds,
     )
+
+    if entry.filled:
+        adverse_slippage = (
+            entry.price - signal_price
+            if event.direction == "LONG"
+            else signal_price - entry.price
+        )
+        if adverse_slippage > execution_policy.max_slippage_points:
+            return ResolvedOpeningBreakoutTrade(
+                event,
+                contract,
+                underlying_price,
+                signal_price,
+                0,
+                0,
+                FillResult(False, entry.timestamp, entry.price, "SLIPPAGE_REJECTED"),
+                FillResult(False, None, None, "NO_EXIT"),
+                None,
+                None,
+                None,
+                0.0,
+                "SLIPPAGE_REJECTED",
+            )
 
     if not entry.filled:
         return ResolvedOpeningBreakoutTrade(

@@ -15,7 +15,6 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from backtest.fyers_option_candles import FyersOptionCandleLoader
 from backtest.opening_breakout_v2_multi_session import run_multi_session_backtest
-from backtest.opening_breakout_v2_signal_engine import SignalSeries
 from config.settings import DATABASE_PATH
 from execution.opening_breakout_v2_execution import V2ExecutionPolicy
 from research.opening_breakout_1m_v2 import Candle, IndicatorSnapshot, V2Config
@@ -98,6 +97,12 @@ def main() -> None:
     print(f"Signals       : {result.signals}")
     print(f"Closed trades : {result.closed}")
     print(f"Rejected      : {result.rejected}")
+    print(f"Initial equity: {result.initial_capital:.2f}")
+    print(f"Ending equity : {result.ending_equity:.2f}")
+    print(f"Peak equity   : {result.peak_equity:.2f}")
+    print(f"Max drawdown  : {result.max_drawdown:.2f} ({result.max_drawdown_pct:.2f}%)")
+    print(f"Wins / Losses : {result.wins} / {result.losses}")
+    print(f"Win rate      : {result.win_rate_pct:.2f}%")
     print(f"Gross P&L     : {result.gross_pnl:.2f}")
     print(f"Total costs   : {result.total_costs:.2f}")
     print(f"Net P&L       : {result.net_pnl:.2f}")

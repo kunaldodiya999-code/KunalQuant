@@ -29,3 +29,36 @@ def test_options_cost_breakdown():
     assert result.stt == 9.83125
     assert result.total_cost > result.brokerage
     assert result.net_pnl < -1430.0
+
+
+def test_historical_options_ipft_regime():
+    profile = fyers_options_profile(date(2025, 10, 15))
+    assert profile.ipft_rate == 50.0 / 10_000_000.0
+
+
+def test_cost_components_are_explicit():
+    result = calculate_options_trade_costs(
+        entry_price=100.0,
+        exit_price=90.0,
+        quantity=65,
+        profile=fyers_options_profile(date(2025, 10, 15)),
+        gross_pnl=-650.0,
+    )
+
+    assert result.exchange_transaction == (100.0 * 65 + 90.0 * 65) * 0.000355299
+    assert result.stt == 90.0 * 65 * 0.001
+    assert result.sebi == (100.0 * 65 + 90.0 * 65) * (10.0 / 10_000_000.0)
+    assert result.stamp_duty == 100.0 * 65 * 0.00003
+    assert result.ipft == (100.0 * 65 + 90.0 * 65) * (50.0 / 10_000_000.0)
+    assert result.gst == 0.18 * (
+        result.brokerage + result.exchange_transaction + result.sebi + result.ipft
+    )
+    assert result.total_cost == (
+        result.brokerage
+        + result.exchange_transaction
+        + result.stt
+        + result.sebi
+        + result.stamp_duty
+        + result.ipft
+        + result.gst
+    )

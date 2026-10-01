@@ -177,12 +177,19 @@ def main() -> None:
                 f"[REJECTED] status={trade.status} "
                 f"contract={trade.contract.symbol} "
                 f"option_signal={trade.option_signal_price:.2f} "
+                f"entry_limit={trade.option_signal_price + 1.0:.2f} "
                 f"entry_reason={trade.entry.reason} "
                 f"entry_ts={trade.entry.timestamp} "
                 f"entry_price={trade.entry.price} "
                 f"stop={trade.stop_price} "
                 f"target={trade.target_price}"
             )
+            if trade.entry.reason == "FILL_TIMEOUT":
+                print(
+                    "[ENTRY_DIAGNOSTIC] timeout=10s; "
+                    "signal bar is excluded; "
+                    "next option bars must trade at/below entry_limit for BUY fill"
+                )
 
     print("-" * 90)
     print(f"Closed trades : {closed}")

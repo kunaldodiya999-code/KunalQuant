@@ -18,7 +18,7 @@ class OptionsCostProfile:
     stt_sell_rate: float = 0.0015
     sebi_rate: float = 10.0 / 10_000_000.0
     stamp_buy_rate: float = 0.00003
-    ipft_rate: float = 0.01 / 10_000_000.0
+    ipft_rate: float = 50.0 / 10_000_000.0
     gst_rate: float = 0.18
 
     def __post_init__(self) -> None:

@@ -147,7 +147,9 @@ def main() -> None:
                 execution_policy=V2ExecutionPolicy(
                     entry_buffer_points=1.0,
                     max_slippage_points=2.0,
-                    fill_timeout_seconds=10,
+                    # Historical data is 1-minute OHLC. The first observable
+                    # post-signal bar is therefore 60 seconds later.
+                    fill_timeout_seconds=60,
                 ),
                 capital=args.capital,
                 force_exit_timestamp=(
@@ -186,7 +188,7 @@ def main() -> None:
             )
             if trade.entry.reason == "FILL_TIMEOUT":
                 print(
-                    "[ENTRY_DIAGNOSTIC] timeout=10s; "
+                    "[ENTRY_DIAGNOSTIC] timeout=60s; "
                     "signal bar is excluded; "
                     "next option bars must trade at/below entry_limit for BUY fill"
                 )

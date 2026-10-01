@@ -25,3 +25,45 @@ def test_decomposition_separates_strategy_from_execution_and_costs():
     assert row["strategy_risk"] == 1500.0
     assert row["intended_risk"] == 2000.0
     assert row["realized_r"] == -1.1
+
+
+from scripts.audit_opening_breakout_v2_risk_decomposition import summarize
+
+
+def test_summary_reconciles_force_exit_separately():
+    rows = [
+        {
+            "theoretical_strategy_pnl": -1425.0,
+            "entry_execution_impact": -75.0,
+            "exit_execution_impact": -150.0,
+            "gross_pnl": -1650.0,
+            "cost": 50.0,
+            "net_pnl": -1700.0,
+            "strategy_risk": 1500.0,
+            "intended_risk": 2000.0,
+            "exit_reason": "STOP_LOSS",
+        },
+        {
+            "theoretical_strategy_pnl": None,
+            "entry_execution_impact": -10.0,
+            "exit_execution_impact": None,
+            "gross_pnl": 500.0,
+            "cost": 40.0,
+            "net_pnl": 460.0,
+            "strategy_risk": 1500.0,
+            "intended_risk": 2000.0,
+            "exit_reason": "FORCE_EXIT",
+        },
+    ]
+
+    summary = summarize(rows)
+
+    assert summary["entry_impact_known"] == -75.0
+    assert summary["entry_impact_force"] == -10.0
+    assert summary["exit_impact_known"] == -150.0
+    assert summary["known_gross"] == -1650.0
+    assert summary["force_exit_gross"] == 500.0
+    assert summary["force_exit_residual"] == 510.0
+    assert summary["gross"] == -1150.0
+    assert summary["cost"] == 90.0
+    assert summary["net"] == -1240.0

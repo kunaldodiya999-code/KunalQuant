@@ -130,10 +130,21 @@ def _find_option_signal_price(
 
 def _setup_option_candle(
     bars: Sequence[HistoricalBar],
+    setup_timestamp: int,
 ) -> HistoricalBar:
-    if not bars:
-        raise LookupError("option candle history is empty")
-    return min(bars, key=lambda bar: bar.timestamp)
+    """Return the latest option candle available at the V2 setup timestamp.
+
+    The integration must not use the earliest candle in the loaded history:
+    that can belong to a different session and silently change the stop level.
+    Selecting only timestamps <= setup_timestamp also prevents a future option
+    candle from leaking into stop construction.
+    """
+    candidates = [bar for bar in bars if bar.timestamp <= setup_timestamp]
+    if not candidates:
+        raise LookupError(
+            "no option candle available at or before the setup timestamp"
+        )
+    return max(candidates, key=lambda bar: bar.timestamp)
 
 
 def run_opening_breakout_trade(
@@ -233,7 +244,7 @@ def run_opening_breakout_trade(
             entry.reason,
         )
 
-    setup = _setup_option_candle(option_bars)
+    setup = _setup_option_candle(option_bars, event.setup_timestamp)
     stop = stop_loss_price(
         entry.price,
         Candle(

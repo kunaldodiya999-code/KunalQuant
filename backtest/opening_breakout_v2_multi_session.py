@@ -37,6 +37,7 @@ class MultiSessionResult:
     signals: int
     closed: int
     rejected: int
+    rejection_reasons: tuple[tuple[str, int], ...]
     initial_capital: float
     ending_equity: float
     peak_equity: float
@@ -83,7 +84,10 @@ def run_multi_session_backtest(
     current_capital = float(capital)
     sessions = 0
     signals = 0
-    rejected = 0
+    rejection_counts: dict[str, int] = {}
+
+    def record_rejection(reason: str) -> None:
+        rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
 
     for _, session_candles in group_candles_by_session(candles):
         if len(session_candles) < 2:
@@ -121,13 +125,13 @@ def run_multi_session_backtest(
                     capital=current_capital,
                     force_exit_timestamp=force_exit,
                 )
-            except Exception:
-                rejected += 1
+            except Exception as exc:
+                record_rejection(f"EXCEPTION:{type(exc).__name__}:{exc}")
                 continue
 
             trades.append(trade)
             if trade.status != "CLOSED":
-                rejected += 1
+                record_rejection(trade.status)
                 continue
 
             breakdown = calculate_options_trade_costs(

@@ -20,7 +20,9 @@ TUESDAY_FIRST_EXPIRY = date(2025, 9, 2)
 # therefore moved to the previous trading day, 20-Oct-2025. Keep this separate
 # from session_dates because a special Muhurat session may still appear there.
 NIFTY_FO_HOLIDAYS = {
-    date(2025, 10, 21),
+    date(2025, 4, 10),  # Mahavir Jayanti
+    date(2025, 5, 1),   # Maharashtra Day
+    date(2025, 10, 21), # Diwali / Laxmi Puja
 }
 
 

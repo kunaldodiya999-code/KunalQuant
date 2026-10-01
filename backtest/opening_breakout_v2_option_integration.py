@@ -264,6 +264,23 @@ def run_opening_breakout_trade(
             "historical integration requires an actual stop for sizing"
         )
 
+    if stop <= 0:
+        return ResolvedOpeningBreakoutTrade(
+            event=event,
+            contract=contract,
+            signal_underlying_price=underlying_price,
+            option_signal_price=signal_price,
+            quantity=0,
+            lots=0,
+            entry=entry,
+            exit=FillResult(False, None, None, "NO_EXIT"),
+            stop_price=stop,
+            target_price=None,
+            final_stop_price=stop,
+            gross_pnl=0.0,
+            status="INVALID_STOP",
+        )
+
     lot_size = lot_size_loader(contract.instrument_id)
     sizing = calculate_position_size(
         capital=capital,

@@ -126,7 +126,7 @@ def main() -> None:
             print(
                 f"[REJECTED] {trade.contract.symbol} "
                 f"signal={trade.event.trigger_timestamp} "
-                f"reason={trade.entry.reason}"
+                f"reason={trade.status}"
             )
 
     print("=" * 90)

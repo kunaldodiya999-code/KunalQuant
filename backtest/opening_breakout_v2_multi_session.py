@@ -126,7 +126,13 @@ def run_multi_session_backtest(
                     force_exit_timestamp=force_exit,
                 )
             except Exception as exc:
-                record_rejection(f"EXCEPTION:{type(exc).__name__}:{exc}")
+                rejection = (
+                    f"EXCEPTION:{type(exc).__name__}:{exc}"
+                    f"|signal_ts={event.trigger_timestamp}"
+                    f"|setup_ts={event.setup_timestamp}"
+                    f"|direction={event.direction}"
+                )
+                record_rejection(rejection)
                 continue
 
             trades.append(trade)

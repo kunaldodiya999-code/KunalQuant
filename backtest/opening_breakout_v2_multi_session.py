@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Callable, Sequence
 from zoneinfo import ZoneInfo
 
+from backtest.broker_cost_model import calculate_options_trade_costs, fyers_options_profile
 from backtest.fyers_option_candles import FyersOptionCandleLoader
 from backtest.opening_breakout_v2_option_integration import (
     ResolvedOpeningBreakoutTrade,
@@ -36,6 +37,8 @@ class MultiSessionResult:
     closed: int
     rejected: int
     gross_pnl: float
+    total_costs: float
+    net_pnl: float
     trades: tuple[ResolvedOpeningBreakoutTrade, ...]
 
 
@@ -115,12 +118,27 @@ def run_multi_session_backtest(
     gross_pnl = sum(
         trade.gross_pnl for trade in trades if trade.status == "CLOSED"
     )
+    total_costs = 0.0
+    for trade in trades:
+        if trade.status == "CLOSED":
+            breakdown = calculate_options_trade_costs(
+                entry_price=trade.entry.price,
+                exit_price=trade.exit.price,
+                quantity=trade.quantity,
+                profile=fyers_options_profile(session_date(trade.event.trigger_timestamp)),
+                gross_pnl=trade.gross_pnl,
+            )
+            total_costs += breakdown.total_cost
+    net_pnl = gross_pnl - total_costs
+
     return MultiSessionResult(
         sessions=sessions,
         signals=signals,
         closed=closed,
         rejected=rejected,
         gross_pnl=gross_pnl,
+        total_costs=total_costs,
+        net_pnl=net_pnl,
         trades=tuple(trades),
     )
 

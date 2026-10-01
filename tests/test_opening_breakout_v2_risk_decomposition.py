@@ -67,3 +67,38 @@ def test_summary_reconciles_force_exit_separately():
     assert summary["gross"] == -1150.0
     assert summary["cost"] == 90.0
     assert summary["net"] == -1240.0
+
+
+def test_summary_cost_components_reconcile():
+    rows = [
+        {
+            "theoretical_strategy_pnl": -100.0,
+            "entry_execution_impact": 0.0,
+            "exit_execution_impact": 0.0,
+            "gross_pnl": -100.0,
+            "cost": 20.0,
+            "brokerage": 10.0,
+            "exchange_transaction": 2.0,
+            "stt": 3.0,
+            "sebi": 1.0,
+            "stamp_duty": 1.0,
+            "ipft": 1.0,
+            "gst": 2.0,
+            "net_pnl": -120.0,
+            "strategy_risk": 100.0,
+            "intended_risk": 200.0,
+            "exit_reason": "STOP_LOSS",
+        }
+    ]
+    summary = summarize(rows)
+    assert summary["cost"] == 20.0
+    assert (
+        summary["brokerage"]
+        + summary["exchange_transaction"]
+        + summary["stt"]
+        + summary["sebi"]
+        + summary["stamp_duty"]
+        + summary["ipft"]
+        + summary["gst"]
+    ) == summary["cost"]
+    assert summary["net"] == summary["gross"] - summary["cost"]

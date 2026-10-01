@@ -1,8 +1,8 @@
 """Configurable broker-realistic cost model for NSE equity-index options.
 
-The model is deliberately separate from strategy and execution logic. Rates are
-explicit inputs so historical backtests can select the applicable regulatory
-regime without changing signal behavior.
+The accounting engine is separate from strategy/execution logic. Regulatory and
+broker rates are explicit inputs so historical backtests can select the
+applicable regime without changing trading behavior.
 """
 
 from __future__ import annotations
@@ -18,13 +18,17 @@ class OptionsCostProfile:
     stt_sell_rate: float = 0.0015
     sebi_rate: float = 10.0 / 10_000_000.0
     stamp_buy_rate: float = 0.00003
-    ipft_rate: float = 50.0 / 10_000_000.0
+    ipft_rate: float = 0.01 / 10_000_000.0
     gst_rate: float = 0.18
 
     def __post_init__(self) -> None:
         for name in (
-            "exchange_txn_rate", "stt_sell_rate", "sebi_rate",
-            "stamp_buy_rate", "ipft_rate", "gst_rate",
+            "exchange_txn_rate",
+            "stt_sell_rate",
+            "sebi_rate",
+            "stamp_buy_rate",
+            "ipft_rate",
+            "gst_rate",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
@@ -91,8 +95,13 @@ def calculate_options_trade_costs(
         brokerage + exchange_transaction + sebi + ipft
     )
     total = (
-        brokerage + exchange_transaction + stt +
-        sebi + stamp_duty + ipft + gst
+        brokerage
+        + exchange_transaction
+        + stt
+        + sebi
+        + stamp_duty
+        + ipft
+        + gst
     )
 
     gross = (

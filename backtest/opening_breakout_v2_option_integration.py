@@ -183,6 +183,40 @@ def run_opening_breakout_trade(
             force_exit_timestamp or event.trigger_timestamp + 86400,
         )
     )
+    invalid_candles = []
+    for candle in raw_candles:
+        open_price = float(candle.open)
+        high_price = float(candle.high)
+        low_price = float(candle.low)
+        close_price = float(candle.close)
+        if high_price < max(open_price, close_price) or low_price > min(open_price, close_price):
+            invalid_candles.append(
+                (int(candle.timestamp), open_price, high_price, low_price, close_price)
+            )
+
+    if invalid_candles:
+        timestamp, open_price, high_price, low_price, close_price = invalid_candles[0]
+        return ResolvedOpeningBreakoutTrade(
+            event=event,
+            contract=contract,
+            signal_underlying_price=underlying_price,
+            option_signal_price=0.0,
+            quantity=0,
+            lots=0,
+            entry=FillResult(False, None, None, "INVALID_DATA"),
+            exit=FillResult(False, None, None, "NO_EXIT"),
+            stop_price=None,
+            target_price=None,
+            final_stop_price=None,
+            gross_pnl=0.0,
+            status=(
+                "INVALID_DATA"
+                f"|symbol={contract.symbol}"
+                f"|timestamp={timestamp}"
+                f"|ohlc={open_price},{high_price},{low_price},{close_price}"
+            ),
+        )
+
     option_bars = sorted(
         (_to_historical_bar(candle) for candle in raw_candles),
         key=lambda bar: bar.timestamp,

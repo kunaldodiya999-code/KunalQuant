@@ -142,22 +142,45 @@ def summarize(rows: list[dict]) -> dict:
     def total(key: str) -> float:
         return sum(float(row[key]) for row in rows)
 
+    theoretical_strategy = sum(
+        float(row["theoretical_strategy_pnl"])
+        for row in rows
+        if row["theoretical_strategy_pnl"] is not None
+    )
+    known_entry_impact = sum(
+        float(row["entry_execution_impact"])
+        for row in rows
+        if row["exit_reason"] != "FORCE_EXIT"
+    )
+    force_entry_impact = sum(
+        float(row["entry_execution_impact"])
+        for row in rows
+        if row["exit_reason"] == "FORCE_EXIT"
+    )
+    exit_impact_known = sum(
+        float(row["exit_execution_impact"])
+        for row in rows
+        if row["exit_execution_impact"] is not None
+    )
+    known_gross = theoretical_strategy + known_entry_impact + exit_impact_known
+    force_exit_gross = sum(
+        float(row["gross_pnl"])
+        for row in rows
+        if row["exit_reason"] == "FORCE_EXIT"
+    )
+    force_exit_residual = force_exit_gross - force_entry_impact
     return {
         "count": len(rows),
         "gross": total("gross_pnl"),
         "cost": total("cost"),
         "net": total("net_pnl"),
-        "theoretical_strategy": sum(
-            float(row["theoretical_strategy_pnl"])
-            for row in rows
-            if row["theoretical_strategy_pnl"] is not None
-        ),
-        "entry_impact": total("entry_execution_impact"),
-        "exit_impact_known": sum(
-            float(row["exit_execution_impact"])
-            for row in rows
-            if row["exit_execution_impact"] is not None
-        ),
+        "theoretical_strategy": theoretical_strategy,
+        "entry_impact_known": known_entry_impact,
+        "entry_impact_force": force_entry_impact,
+        "exit_impact_known": exit_impact_known,
+        "known_gross": known_gross,
+        "force_exit_gross": force_exit_gross,
+        "force_exit_residual": force_exit_residual,
         "strategy_risk": total("strategy_risk"),
         "intended_risk": total("intended_risk"),
         "avg_cost": total("cost") / len(rows) if rows else 0.0,
@@ -222,8 +245,12 @@ def main() -> None:
     print(f"Total intended risk           : {summary['intended_risk']:.2f}")
     print(f"Total strategy stop risk      : {summary['strategy_risk']:.2f}")
     print(f"Theoretical strategy P&L      : {summary['theoretical_strategy']:.2f}")
-    print(f"Entry execution impact        : {summary['entry_impact']:.2f}")
+    print(f"Entry execution impact (known): {summary['entry_impact_known']:.2f}")
+    print(f"Entry impact on force exits   : {summary['entry_impact_force']:.2f}")
     print(f"Exit execution impact (known) : {summary['exit_impact_known']:.2f}")
+    print(f"Known decomposed gross P&L    : {summary['known_gross']:.2f}")
+    print(f"Force-exit gross P&L          : {summary['force_exit_gross']:.2f}")
+    print(f"Force-exit residual from entry: {summary['force_exit_residual']:.2f}")
     print(f"Gross P&L                     : {summary['gross']:.2f}")
     print(f"Broker costs                  : {summary['cost']:.2f}")
     print(f"Net P&L                       : {summary['net']:.2f}")

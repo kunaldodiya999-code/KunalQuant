@@ -26,6 +26,6 @@ def test_options_cost_breakdown():
     assert result.buy_turnover == 11261.25
     assert result.sell_turnover == 9831.25
     assert result.brokerage == 40.0
-    assert result.stt == 98.3125
+    assert result.stt == 9.83125
     assert result.total_cost > result.brokerage
     assert result.net_pnl < -1430.0

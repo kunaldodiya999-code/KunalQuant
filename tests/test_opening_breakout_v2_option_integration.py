@@ -233,3 +233,21 @@ def test_slippage_check_uses_option_premium_not_underlying_breakout():
 
     assert result.entry.filled
     assert result.option_signal_price == 102
+
+
+def test_non_positive_custom_stop_is_rejected_without_exception():
+    event = OpeningBreakoutEvent(symbol="candidate", option_type="CE", strike=25000, lot_size=65, direction="LONG", instrument="CALL", setup_timestamp=100, trigger_timestamp=120, breakout_price=101.0, trigger_reasons=("CANDLE_HIGH",))
+    class Resolver:
+        def resolve(self, **kwargs): return Contract()
+    def loader(*args):
+        return [Candle(100, 15, 18, 10, 12), Candle(120, 14, 16, 13, 15), Candle(121, 14, 17, 13, 16)]
+    result = run_opening_breakout_trade(
+        event=event,
+        underlying_candles=[Candle(100, 25000, 25015, 24990, 25010)],
+        resolver=Resolver(), option_loader=loader,
+        config=V2Config(custom_sl_points=20.0),
+        execution_policy=V2ExecutionPolicy(entry_buffer_points=1.0, max_slippage_points=2.0, fill_timeout_seconds=10),
+        capital=100000, lot_size_loader=lambda instrument_id: 65,
+    )
+    assert result.status == "INVALID_STOP"
+    assert result.stop_price <= 0

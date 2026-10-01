@@ -38,6 +38,19 @@ def test_buy_fill_uses_open_when_market_opens_below_limit():
     assert result.price == 108
 
 
+def test_one_minute_historical_window_reaches_next_bar():
+    result = simulate_limit_fill(
+        [bar(160, 173.25, 185, 170.95, 184.20)],
+        start_after_timestamp=100,
+        side="BUY",
+        limit_price=174.55,
+        timeout_seconds=60,
+    )
+    assert result.filled
+    assert result.timestamp == 160
+    assert result.price == 173.25
+
+
 def test_timeout_does_not_invent_fill():
     result = simulate_limit_fill(
         [bar(120, 100, 101, 99, 100)],

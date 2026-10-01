@@ -162,6 +162,7 @@ def run_multi_session_backtest(
         signals=signals,
         closed=len(equity_inputs),
         rejected=sum(rejection_counts.values()),
+        rejection_reasons=tuple(sorted(rejection_counts.items())),
         initial_capital=accounting.initial_capital,
         ending_equity=accounting.ending_equity,
         peak_equity=accounting.peak_equity,

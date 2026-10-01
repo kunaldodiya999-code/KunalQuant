@@ -138,6 +138,7 @@ def _register_instrument(
     expiry: str,
     strike: int,
     option_type: str,
+    lot_size: int | None = None,
 ) -> int:
     with sqlite3.connect(database_path) as db:
         row = db.execute(
@@ -158,9 +159,10 @@ def _register_instrument(
             """
         ).fetchone()
 
-        exchange, segment, lot_size, tick_size, currency = (
+        exchange, segment, template_lot_size, tick_size, currency = (
             template if template else ("NSE", "11", 65, 0.05, "INR")
         )
+        resolved_lot_size = int(lot_size) if lot_size is not None else int(template_lot_size)
 
         db.execute(
             """
@@ -179,7 +181,7 @@ def _register_instrument(
             """,
             (
                 "FYERS", exchange, segment, symbol, expiry,
-                float(strike), option_type, lot_size, tick_size, currency,
+                float(strike), option_type, resolved_lot_size, tick_size, currency,
             ),
         )
         db.commit()

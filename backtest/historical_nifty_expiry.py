@@ -53,8 +53,17 @@ def historical_nifty_expiry(signal_date: date, session_dates: Iterable[date]) ->
     # dataset stops before that future date. Only an exchange-declared holiday
     # moves the expiry backward.
     if candidate in NIFTY_FO_HOLIDAYS:
-        candidate -= timedelta(days=1)
-        while candidate not in sessions:
+        # If the signal itself occurs on a special session that falls on the
+        # scheduled expiry date, do not move the contract expiry backward to
+        # a date before the signal. The next scheduled expiry is the first
+        # valid contract available for that session.
+        if candidate == signal_date:
+            candidate = _next_weekday(candidate + timedelta(days=1), weekday)
+            while candidate in NIFTY_FO_HOLIDAYS:
+                candidate = _next_weekday(candidate + timedelta(days=1), weekday)
+        else:
             candidate -= timedelta(days=1)
+            while candidate not in sessions:
+                candidate -= timedelta(days=1)
 
     return candidate

@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from config.settings import DATABASE_PATH
 from strategies.option_contract_resolver import OptionContractResolver
 
 IST = ZoneInfo("Asia/Kolkata")
-
-
-def epoch(value: str) -> int:
-    return int(datetime.fromisoformat(value).replace(tzinfo=IST).timestamp())
 
 
 def main() -> None:
@@ -56,7 +57,7 @@ def main() -> None:
     print(f"Instrument ID : {contract.instrument_id}")
     print(f"Signal TS     : {ts}")
     print(f"Signal time   : {datetime.fromtimestamp(ts, tz=IST)}")
-    print(f"BUY limit     : derived from signal option close + 1.00")
+    print("BUY limit     : signal option close + 1.00")
     print("-" * 100)
     print("timestamp           time                  O        H        L        C")
     print("-" * 100)

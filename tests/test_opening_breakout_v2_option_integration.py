@@ -251,3 +251,40 @@ def test_non_positive_custom_stop_is_rejected_without_exception():
     )
     assert result.status == "INVALID_STOP"
     assert result.stop_price <= 0
+
+
+
+def test_invalid_option_ohlc_is_rejected_with_exact_data_diagnostic():
+    event = OpeningBreakoutEvent(
+        symbol="candidate", option_type="CE", strike=25000, lot_size=65,
+        direction="LONG", instrument="CALL", setup_timestamp=100,
+        trigger_timestamp=120, breakout_price=101.0,
+        trigger_reasons=("CANDLE_HIGH",),
+    )
+
+    class Resolver:
+        def resolve(self, **kwargs):
+            return Contract()
+
+    def loader(*args):
+        return [
+            Candle(100, 100, 102, 99, 101),
+            Candle(120, 102, 103, 101, 102),
+            Candle(121, 103, 100, 102, 107),
+        ]
+
+    result = run_opening_breakout_trade(
+        event=event,
+        underlying_candles=[Candle(100, 25000, 25015, 24990, 25010)],
+        resolver=Resolver(), option_loader=loader,
+        config=V2Config(custom_sl_points=5.0),
+        execution_policy=V2ExecutionPolicy(
+            entry_buffer_points=1.0, max_slippage_points=2.0, fill_timeout_seconds=10
+        ),
+        capital=100000, lot_size_loader=lambda instrument_id: 65,
+    )
+
+    assert result.status == "INVALID_DATA|symbol=NSE:NIFTY26SEP25000CE|timestamp=121|ohlc=103.0,100.0,102.0,107.0"
+    assert result.entry.reason == "INVALID_DATA"
+    assert result.quantity == 0
+    assert result.gross_pnl == 0.0

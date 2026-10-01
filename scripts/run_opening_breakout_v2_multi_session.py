@@ -97,6 +97,10 @@ def main() -> None:
     print(f"Signals       : {result.signals}")
     print(f"Closed trades : {result.closed}")
     print(f"Rejected      : {result.rejected}")
+    if result.rejection_reasons:
+        print("Rejection reasons:")
+        for reason, count in result.rejection_reasons:
+            print(f"  {count:4d}  {reason}")
     print(f"Initial equity: {result.initial_capital:.2f}")
     print(f"Ending equity : {result.ending_equity:.2f}")
     print(f"Peak equity   : {result.peak_equity:.2f}")

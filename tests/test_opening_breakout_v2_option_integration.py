@@ -134,3 +134,54 @@ def test_missing_lot_size_is_rejected_instead_of_invented():
         assert "lot size missing" in str(exc)
     else:
         raise AssertionError("missing lot size must be rejected")
+
+
+def test_stop_uses_setup_session_candle_not_earliest_loaded_history():
+    event = OpeningBreakoutEvent(
+        symbol="candidate",
+        option_type="CE",
+        strike=25000,
+        lot_size=65,
+        direction="LONG",
+        instrument="CALL",
+        setup_timestamp=100,
+        trigger_timestamp=120,
+        breakout_price=101.0,
+        trigger_reasons=("CANDLE_HIGH",),
+    )
+
+    class Resolver:
+        def resolve(self, **kwargs):
+            return Contract()
+
+    def loader(*args):
+        return [
+            # Older history must not determine the stop.
+            Candle(50, 70, 80, 60, 75),
+            Candle(100, 100, 102, 99, 101),
+            Candle(120, 102, 103, 101, 102),
+            Candle(121, 103, 104, 102, 103),
+            Candle(123, 103, 104, 90, 91),
+        ]
+
+    result = run_opening_breakout_trade(
+        event=event,
+        underlying_candles=[Candle(100, 25000, 25015, 24990, 25010)],
+        resolver=Resolver(),
+        option_loader=loader,
+        config=V2Config(
+            custom_sl_points=5.0,
+            tp_mode="OFF",
+            risk_per_trade_value=10000.0,
+        ),
+        execution_policy=V2ExecutionPolicy(
+            entry_buffer_points=1.0,
+            max_slippage_points=2.0,
+            fill_timeout_seconds=10,
+        ),
+        capital=100000,
+        lot_size_loader=lambda instrument_id: 65,
+    )
+
+    assert result.entry.filled
+    assert result.stop_price == 98

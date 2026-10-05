@@ -1,7 +1,7 @@
-"""Interactive Opening Breakout V2 strategy controls for the dashboard.
+"""Strategy controls for the KunalQuant TradingView-style right control rail.
 
-This module only builds user-selected V2Config/V2ExecutionPolicy values.
-It does not alter the underlying strategy or execution engine.
+The UI only constructs existing V2Config/V2ExecutionPolicy values. It does not
+change the underlying strategy, execution, lifecycle, accounting, or resolver.
 """
 from __future__ import annotations
 
@@ -14,47 +14,54 @@ from execution.opening_breakout_v2_execution import V2ExecutionPolicy
 from research.opening_breakout_1m_v2 import V2Config
 
 
-def render_strategy_lab(default_risk: float) -> dict[str, Any]:
-    """Render the right-side Strategy Lab popover and return selected settings."""
-    st.markdown("### Strategy Lab")
-    st.caption(
-        "Change one rule at a time, run the backtest, then validate any improvement out-of-sample."
+STRATEGY_A = "Strategy A — Opening Breakout V2"
+STRATEGY_B = "Strategy B — Not connected yet"
+
+
+def _state(key: str, default: Any) -> Any:
+    return st.session_state.get(key, default)
+
+
+def render_strategy_parameters() -> None:
+    """Render all parameters that belong to the selected strategy."""
+    strategy = st.selectbox(
+        "Strategy",
+        [STRATEGY_A, STRATEGY_B],
+        key="selected_strategy",
+        help="Select the strategy whose parameters you want to configure.",
     )
+    st.caption("All settings below apply only to the selected strategy.")
+
+    if strategy == STRATEGY_B:
+        st.warning(
+            "Strategy B is visible in the selector but is not connected to the "
+            "current historical runner. It cannot be backtested yet."
+        )
+        return
 
     with st.expander("1. Entry / signal", expanded=True):
-        bias = st.selectbox(
+        st.selectbox(
             "Market bias",
             ["NEUTRAL", "UP", "DOWN"],
             index=0,
             key="lab_bias",
-            help="NEUTRAL allows the configured instrument direction; UP/DOWN filters direction.",
         )
-        instrument = st.selectbox(
+        st.selectbox(
             "Trade instrument",
             ["CALL", "PUT"],
             index=0,
             key="lab_instrument",
         )
-        trigger = st.selectbox(
+        st.selectbox(
             "Breakout trigger",
             ["CANDLE_HIGH", "CANDLE_LOW"],
             index=0,
             key="lab_trigger",
-            help="These are the triggers currently connected to the real historical runner.",
+            help="Currently connected real-data triggers.",
         )
-        filter_open_low = st.checkbox(
-            "Require OPEN = LOW",
-            value=False,
-            key="lab_open_low",
-            help="Current dashboard baseline is OFF.",
-        )
-        filter_open_high = st.checkbox(
-            "Require OPEN = HIGH",
-            value=False,
-            key="lab_open_high",
-            help="Current dashboard baseline is OFF.",
-        )
-        open_tolerance = st.number_input(
+        st.checkbox("Require OPEN = LOW", value=False, key="lab_open_low")
+        st.checkbox("Require OPEN = HIGH", value=False, key="lab_open_high")
+        st.number_input(
             "OPEN equality tolerance (points)",
             min_value=0.0,
             value=0.05,
@@ -63,35 +70,34 @@ def render_strategy_lab(default_risk: float) -> dict[str, Any]:
         )
 
     with st.expander("2. Option selection", expanded=False):
-        strike_mode = st.selectbox(
+        st.selectbox(
             "Strike selector",
             ["LOT_VALUE", "PRICE_RANGE", "ATM_DISTANCE"],
             index=0,
             key="lab_strike_mode",
-            help="The resolver uses this deterministic selection mode.",
         )
-        lot_value = st.number_input(
+        st.number_input(
             "Target option value (₹ = LTP × lot)",
             min_value=100.0,
             value=10000.0,
             step=500.0,
             key="lab_lot_value",
         )
-        price_min = st.number_input(
+        st.number_input(
             "Option LTP minimum",
             min_value=0.01,
             value=80.0,
             step=5.0,
             key="lab_price_min",
         )
-        price_max = st.number_input(
+        st.number_input(
             "Option LTP maximum",
             min_value=0.01,
             value=100.0,
             step=5.0,
             key="lab_price_max",
         )
-        atm_distance = st.number_input(
+        st.number_input(
             "ATM distance (points)",
             min_value=0.0,
             value=0.0,
@@ -100,47 +106,47 @@ def render_strategy_lab(default_risk: float) -> dict[str, Any]:
         )
 
     with st.expander("3. Stop loss / target", expanded=True):
-        sl_mode = st.selectbox(
+        st.selectbox(
             "Stop-loss mode",
             ["CUSTOM_POINTS", "CANDLE_1_LOW", "CANDLE_1_HIGH", "VALUE", "OFF"],
             index=0,
             key="lab_sl_mode",
         )
-        custom_sl = st.number_input(
+        st.number_input(
             "Stop-loss points",
             min_value=0.01,
             value=20.0,
             step=1.0,
             key="lab_custom_sl",
         )
-        sl_cap = st.number_input(
+        st.number_input(
             "Stop-loss value cap (₹)",
             min_value=100.0,
             value=10000.0,
             step=500.0,
             key="lab_sl_cap",
         )
-        tp_mode = st.selectbox(
+        st.selectbox(
             "Target mode",
             ["RR_RATIO", "CUSTOM_POINTS", "VALUE", "OFF"],
             index=0,
             key="lab_tp_mode",
         )
-        rr = st.number_input(
+        st.number_input(
             "Reward / Risk",
             min_value=0.1,
             value=2.0,
             step=0.25,
             key="lab_rr",
         )
-        custom_tp = st.number_input(
+        st.number_input(
             "Target points",
             min_value=0.01,
             value=20.0,
             step=1.0,
             key="lab_custom_tp",
         )
-        tp_value = st.number_input(
+        st.number_input(
             "Target value (₹)",
             min_value=100.0,
             value=10000.0,
@@ -149,20 +155,20 @@ def render_strategy_lab(default_risk: float) -> dict[str, Any]:
         )
 
     with st.expander("4. Position sizing", expanded=False):
-        risk_method = st.selectbox(
+        st.selectbox(
             "Risk method",
             ["FIXED_AMOUNT", "PERCENT_OF_CAPITAL"],
             index=0,
             key="lab_risk_method",
         )
-        risk_value = st.number_input(
+        st.number_input(
             "Risk / trade (₹)",
             min_value=100.0,
-            value=float(default_risk),
+            value=2000.0,
             step=100.0,
             key="lab_risk_value",
         )
-        risk_pct = st.number_input(
+        st.number_input(
             "Risk / trade (%)",
             min_value=0.01,
             max_value=100.0,
@@ -170,7 +176,7 @@ def render_strategy_lab(default_risk: float) -> dict[str, Any]:
             step=0.25,
             key="lab_risk_pct",
         )
-        allocation = st.number_input(
+        st.number_input(
             "Capital allocation (%)",
             min_value=1.0,
             max_value=100.0,
@@ -180,74 +186,99 @@ def render_strategy_lab(default_risk: float) -> dict[str, Any]:
         )
 
     with st.expander("5. Execution assumptions", expanded=False):
-        entry_buffer = st.number_input(
+        st.number_input(
             "Entry buffer (points)",
             min_value=0.0,
             value=1.0,
             step=0.5,
             key="lab_entry_buffer",
         )
-        exit_buffer = st.number_input(
+        st.number_input(
             "Exit buffer (points)",
             min_value=0.0,
             value=2.0,
             step=0.5,
             key="lab_exit_buffer",
         )
-        max_slippage = st.number_input(
+        st.number_input(
             "Max slippage (points)",
             min_value=0.0,
             value=2.0,
             step=0.5,
             key="lab_max_slippage",
         )
-        fill_timeout = st.number_input(
+        st.number_input(
             "Historical fill timeout (seconds)",
             min_value=1,
             value=60,
             step=5,
             key="lab_fill_timeout",
         )
-        st.info(
-            "Entry window 09:15–15:10 and force exit 15:15 remain locked to the current runner. "
-            "VWAP-based signal/stop controls are not exposed yet because this dashboard currently uses an empty indicator provider."
-        )
 
+    st.info(
+        "Entry window 09:15–15:10 and force exit 15:15 remain locked to the "
+        "current runner. Advanced VWAP/KTMI/DMI controls are not exposed until "
+        "the dashboard indicator provider is connected."
+    )
     st.warning(
-        "Trailing management is intentionally not editable here. "
-        "The ATR structural trailing work remains an isolated research experiment."
+        "ATR structural trailing remains an isolated research experiment and is "
+        "not silently mixed into this strategy configuration."
     )
 
+
+def get_strategy_state(default_risk: float = 2000.0) -> dict[str, Any]:
+    """Build the active strategy state from Streamlit session values.
+
+    This is also used when the right rail is collapsed, so collapsing the panel
+    does not reset the configured strategy.
+    """
+    strategy = _state("selected_strategy", STRATEGY_A)
+    if strategy != STRATEGY_A:
+        return {
+            "strategy": strategy,
+            "available": False,
+            "config": None,
+            "execution_policy": None,
+            "summary": {},
+        }
+
+    risk_value = float(_state("lab_risk_value", default_risk))
     config = V2Config(
-        capital_allocation_percent=float(allocation),
+        capital_allocation_percent=float(_state("lab_allocation", 100.0)),
         selected_timeframes=("1M",),
-        market_bias=bias,
-        trade_instrument=instrument,
-        filter_open_high=filter_open_high,
-        filter_open_low=filter_open_low,
-        open_equal_tolerance_points=float(open_tolerance),
-        selected_triggers=(trigger,),
-        strike_selector_mode=strike_mode,
-        lot_value_target=float(lot_value),
-        option_price_min=float(price_min),
-        option_price_max=float(price_max),
-        atm_distance_points=float(atm_distance),
-        sl_mode=sl_mode,
-        custom_sl_points=float(custom_sl),
-        sl_value_cap=float(sl_cap),
-        tp_mode=tp_mode,
-        custom_tp_points=float(custom_tp),
-        tp_value_target=float(tp_value),
-        rr_multiplier=float(rr),
+        market_bias=_state("lab_bias", "NEUTRAL"),
+        trade_instrument=_state("lab_instrument", "CALL"),
+        filter_open_high=bool(_state("lab_open_high", False)),
+        filter_open_low=bool(_state("lab_open_low", False)),
+        open_equal_tolerance_points=float(_state("lab_open_tolerance", 0.05)),
+        selected_triggers=(_state("lab_trigger", "CANDLE_HIGH"),),
+        strike_selector_mode=_state("lab_strike_mode", "LOT_VALUE"),
+        lot_value_target=float(_state("lab_lot_value", 10000.0)),
+        option_price_min=float(_state("lab_price_min", 80.0)),
+        option_price_max=float(_state("lab_price_max", 100.0)),
+        atm_distance_points=float(_state("lab_atm_distance", 0.0)),
+        sl_mode=_state("lab_sl_mode", "CUSTOM_POINTS"),
+        custom_sl_points=float(_state("lab_custom_sl", 20.0)),
+        sl_value_cap=float(_state("lab_sl_cap", 10000.0)),
+        tp_mode=_state("lab_tp_mode", "RR_RATIO"),
+        custom_tp_points=float(_state("lab_custom_tp", 20.0)),
+        tp_value_target=float(_state("lab_tp_value", 10000.0)),
+        rr_multiplier=float(_state("lab_rr", 2.0)),
         trailing_enabled=False,
-        risk_method=risk_method,
-        risk_per_trade_value=float(risk_value),
-        risk_per_trade_percent=float(risk_pct),
+        risk_method=_state("lab_risk_method", "FIXED_AMOUNT"),
+        risk_per_trade_value=risk_value,
+        risk_per_trade_percent=float(_state("lab_risk_pct", 1.0)),
     )
     policy = V2ExecutionPolicy(
-        entry_buffer_points=float(entry_buffer),
-        exit_buffer_points=float(exit_buffer),
-        max_slippage_points=float(max_slippage),
-        fill_timeout_seconds=int(fill_timeout),
+        entry_buffer_points=float(_state("lab_entry_buffer", 1.0)),
+        exit_buffer_points=float(_state("lab_exit_buffer", 2.0)),
+        max_slippage_points=float(_state("lab_max_slippage", 2.0)),
+        fill_timeout_seconds=int(_state("lab_fill_timeout", 60)),
     )
-    return {"config": config, "execution_policy": policy, "summary": asdict(config)}
+    return {
+        "strategy": strategy,
+        "available": True,
+        "config": config,
+        "execution_policy": policy,
+        "summary": asdict(config),
+    }

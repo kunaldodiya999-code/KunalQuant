@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from dashboard.analytics import build_trade_dataframe
 import pandas as pd
 
 from dashboard.analytics import exit_summary, key_metrics, monthly_summary
@@ -41,3 +42,33 @@ def test_key_metrics_calculates_profit_factor_expectancy_and_streaks():
     assert metrics["avg_holding_minutes"] == 20.0
     assert metrics["max_win_streak"] == 1.0
     assert metrics["max_loss_streak"] == 1.0
+
+
+def test_build_trade_dataframe_includes_risk_holding_and_exit_reason():
+    trade = SimpleNamespace(
+        event=SimpleNamespace(
+            trigger_timestamp=1735810200,
+            direction="LONG",
+        ),
+        contract=SimpleNamespace(symbol="NSE:NIFTYTESTCE"),
+        signal_underlying_price=100.0,
+        option_signal_price=50.0,
+        quantity=75,
+        lots=1,
+        entry=SimpleNamespace(filled=True, timestamp=1735810260, price=51.0, reason="FILLED"),
+        exit=SimpleNamespace(filled=True, timestamp=1735810860, price=71.0, reason="TARGET"),
+        stop_price=31.0,
+        target_price=91.0,
+        final_stop_price=31.0,
+        gross_pnl=1500.0,
+        status="CLOSED",
+    )
+    result = SimpleNamespace(trades=(trade,))
+    df = build_trade_dataframe(result, intended_risk=2000.0)
+
+    row = df.iloc[0]
+    assert row["Exit Reason"] == "TARGET"
+    assert row["Strategy Risk"] == 1500.0
+    assert row["Intended Risk"] == 2000.0
+    assert row["Realized R"] == 1.0
+    assert row["Holding (min)"] == 10.0

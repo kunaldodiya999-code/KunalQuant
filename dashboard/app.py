@@ -116,6 +116,7 @@ def render():
         for tab_name, icon in (
             ("Strategy", "⚙"),
             ("Backtest", "◫"),
+            ("Optimizer", "⌁"),
             ("Research", "🧪"),
         ):
             label = f"{icon}  {tab_name}"
@@ -154,6 +155,137 @@ def render():
                     step=5_000.0,
                     key="bt_capital",
                 )
+        elif st.session_state["control_tab"] == "Optimizer":
+            with st.container(border=True):
+                st.markdown("#### Strategy Optimizer")
+                opt_state = get_strategy_state(2000.0)
+                if not opt_state["available"]:
+                    st.warning("Select Strategy A in the Strategy tab before optimizing.")
+                else:
+                    st.caption(
+                        "One parameter at a time. Research only; no automatic promotion."
+                    )
+                    opt_param = st.selectbox(
+                        "Parameter",
+                        list(OPTIMIZABLE_PARAMETERS),
+                        format_func=lambda x: (
+                            f"{OPTIMIZABLE_PARAMETERS[x][0]} · "
+                            f"{OPTIMIZABLE_PARAMETERS[x][1]}"
+                        ),
+                        key="opt_parameter",
+                    )
+                    ranges = {
+                        "custom_sl_points": (10.0, 40.0, 5.0),
+                        "rr_multiplier": (1.0, 4.0, 0.5),
+                        "custom_tp_points": (10.0, 50.0, 5.0),
+                        "lot_value_target": (7500.0, 15000.0, 2500.0),
+                        "risk_per_trade_value": (1000.0, 3000.0, 500.0),
+                        "risk_per_trade_percent": (0.5, 2.0, 0.25),
+                        "capital_allocation_percent": (50.0, 100.0, 10.0),
+                        "entry_buffer_points": (0.0, 2.0, 0.5),
+                        "exit_buffer_points": (1.0, 3.0, 0.5),
+                        "max_slippage_points": (1.0, 3.0, 0.5),
+                        "fill_timeout_seconds": (30.0, 90.0, 15.0),
+                    }
+                    d_start, d_end, d_step = ranges[opt_param]
+                    opt_start = st.number_input(
+                        "Sweep start", value=d_start, key="opt_start"
+                    )
+                    opt_end = st.number_input(
+                        "Sweep end", value=d_end, key="opt_end"
+                    )
+                    opt_step = st.number_input(
+                        "Sweep step", min_value=0.01, value=d_step, key="opt_step"
+                    )
+                    objective = st.selectbox(
+                        "Optimize for",
+                        ["Net P&L", "Profit Factor", "Avg Net R", "Max DD"],
+                        key="opt_objective",
+                    )
+                    max_runs = st.number_input(
+                        "Maximum runs",
+                        min_value=2,
+                        max_value=25,
+                        value=9,
+                        step=1,
+                    )
+                    optimize = st.button(
+                        "RUN OPTIMIZER",
+                        use_container_width=True,
+                        key="run_optimizer",
+                    )
+                    if optimize:
+                        try:
+                            values = sweep_values(opt_start, opt_end, opt_step)
+                            if len(values) > int(max_runs):
+                                raise ValueError(
+                                    f"{len(values)} values requested; reduce the range "
+                                    f"or increase the step. Maximum is {int(max_runs)}."
+                                )
+                            rows = []
+                            with st.spinner(f"Running {len(values)} parameter tests…"):
+                                for value in values:
+                                    cfg, policy = apply_parameter(
+                                        opt_state["config"],
+                                        opt_state["execution_policy"],
+                                        opt_param,
+                                        value,
+                                    )
+                                    result = run_backtest(
+                                        st.session_state.get("bt_start", date(2025, 1, 1)),
+                                        st.session_state.get("bt_end", date(2025, 10, 31)),
+                                        float(st.session_state.get("bt_capital", 100_000.0)),
+                                        cfg,
+                                        policy,
+                                    )
+                                    intended_risk = (
+                                        cfg.risk_per_trade_value
+                                        if cfg.risk_method == "FIXED_AMOUNT"
+                                        else float(st.session_state.get("bt_capital", 100_000.0))
+                                        * cfg.risk_per_trade_percent / 100.0
+                                    )
+                                    trade_df = build_trade_dataframe(result, intended_risk)
+                                    km = key_metrics(trade_df)
+                                    rows.append(
+                                        {
+                                            "Value": value,
+                                            "Net P&L": result.net_pnl,
+                                            "Profit Factor": km["profit_factor"],
+                                            "Avg Net R": _avg_net_r(trade_df),
+                                            "Max DD": result.max_drawdown,
+                                            "Trades": result.closed,
+                                            "Win Rate %": result.win_rate_pct,
+                                        }
+                                    )
+                            ranked = rank_sweep(rows, objective)
+                            st.success(f"Completed {len(ranked)} tests.")
+                            st.dataframe(
+                                ranked.style.format(
+                                    {
+                                        "Net P&L": "₹{:,.2f}",
+                                        "Profit Factor": "{:.2f}",
+                                        "Avg Net R": "{:.3f}",
+                                        "Max DD": "₹{:,.2f}",
+                                        "Win Rate %": "{:.2f}%",
+                                    }
+                                ),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+                            if not ranked.empty:
+                                best = ranked.iloc[0]
+                                st.info(
+                                    f"Best by {objective}: {opt_param} = {best['Value']} · "
+                                    f"Net P&L ₹{best['Net P&L']:,.2f} · "
+                                    f"Max DD ₹{best['Max DD']:,.2f}"
+                                )
+                                st.caption(
+                                    "In-sample ranking only. Any candidate must pass "
+                                    "out-of-sample and robustness validation."
+                                )
+                        except Exception as exc:
+                            st.error(str(exc))
+
         elif st.session_state["control_tab"] == "Research":
             with st.container(border=True):
                 st.markdown("#### Research switches")
@@ -227,6 +359,9 @@ def render():
         )
     
         if run_requested:
+            if not lab_state["available"]:
+                st.error("Select Strategy A — Opening Breakout V2 before running the backtest.")
+                return
             with st.spinner("Running real historical backtest…"):
                 try:
                     result = run_backtest(

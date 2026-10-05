@@ -103,38 +103,42 @@ def render():
         layout="wide",
     )
 
-    # TradingView-style right control rail. The active tab is intentionally
-    # collapsible: clicking it again closes the panel without losing settings.
+    # TradingView-style right control rail:
+    # the tab strip stays at the far right; the active panel opens immediately
+    # to its left, just like a TradingView side tool panel.
     if "control_tab" not in st.session_state:
         st.session_state["control_tab"] = "Strategy"
 
-    main_col, rail_col = st.columns([5.7, 1.35], gap="small")
+    main_col, panel_col, rail_col = st.columns([6.4, 2.15, 0.55], gap="small")
 
     with rail_col:
-        st.markdown("### KUNAL QUANT")
-        st.caption("CONTROL RAIL")
+        st.markdown(
+            """
+            <div style="text-align:center; font-size:11px; font-weight:700;
+                        margin-bottom:8px;">KQ</div>
+            """,
+            unsafe_allow_html=True,
+        )
         for tab_name, icon in (
             ("Strategy", "⚙"),
             ("Backtest", "◫"),
             ("Optimizer", "⌁"),
             ("Research", "🧪"),
         ):
-            label = f"{icon}  {tab_name}"
+            active = st.session_state["control_tab"] == tab_name
             if st.button(
-                label,
+                icon,
                 key=f"rail_tab_{tab_name.lower()}",
+                help=tab_name,
                 use_container_width=True,
-                type="primary" if st.session_state["control_tab"] == tab_name else "secondary",
+                type="primary" if active else "secondary",
             ):
-                if st.session_state["control_tab"] == tab_name:
-                    st.session_state["control_tab"] = None
-                else:
-                    st.session_state["control_tab"] = tab_name
+                st.session_state["control_tab"] = None if active else tab_name
 
-        st.divider()
-
+    with panel_col:
         if st.session_state["control_tab"] == "Strategy":
             with st.container(border=True):
+                st.markdown("#### Strategy")
                 render_strategy_parameters()
         elif st.session_state["control_tab"] == "Backtest":
             with st.container(border=True):
@@ -188,12 +192,8 @@ def render():
                         "fill_timeout_seconds": (30.0, 90.0, 15.0),
                     }
                     d_start, d_end, d_step = ranges[opt_param]
-                    opt_start = st.number_input(
-                        "Sweep start", value=d_start, key="opt_start"
-                    )
-                    opt_end = st.number_input(
-                        "Sweep end", value=d_end, key="opt_end"
-                    )
+                    opt_start = st.number_input("Sweep start", value=d_start, key="opt_start")
+                    opt_end = st.number_input("Sweep end", value=d_end, key="opt_end")
                     opt_step = st.number_input(
                         "Sweep step", min_value=0.01, value=d_step, key="opt_step"
                     )
@@ -203,16 +203,10 @@ def render():
                         key="opt_objective",
                     )
                     max_runs = st.number_input(
-                        "Maximum runs",
-                        min_value=2,
-                        max_value=25,
-                        value=9,
-                        step=1,
+                        "Maximum runs", min_value=2, max_value=25, value=9, step=1
                     )
                     optimize = st.button(
-                        "RUN OPTIMIZER",
-                        use_container_width=True,
-                        key="run_optimizer",
+                        "RUN OPTIMIZER", use_container_width=True, key="run_optimizer"
                     )
                     if optimize:
                         try:
@@ -234,15 +228,20 @@ def render():
                                     result = run_backtest(
                                         st.session_state.get("bt_start", date(2025, 1, 1)),
                                         st.session_state.get("bt_end", date(2025, 10, 31)),
-                                        float(st.session_state.get("bt_capital", 100_000.0)),
+                                        float(
+                                            st.session_state.get("bt_capital", 100_000.0)
+                                        ),
                                         cfg,
                                         policy,
                                     )
                                     intended_risk = (
                                         cfg.risk_per_trade_value
                                         if cfg.risk_method == "FIXED_AMOUNT"
-                                        else float(st.session_state.get("bt_capital", 100_000.0))
-                                        * cfg.risk_per_trade_percent / 100.0
+                                        else float(
+                                            st.session_state.get("bt_capital", 100_000.0)
+                                        )
+                                        * cfg.risk_per_trade_percent
+                                        / 100.0
                                     )
                                     trade_df = build_trade_dataframe(result, intended_risk)
                                     km = key_metrics(trade_df)
@@ -285,7 +284,6 @@ def render():
                                 )
                         except Exception as exc:
                             st.error(str(exc))
-
         elif st.session_state["control_tab"] == "Research":
             with st.container(border=True):
                 st.markdown("#### Research switches")
@@ -298,17 +296,8 @@ def render():
                     key="research_trailing",
                 )
                 st.caption(
-                    "Research modules remain isolated until independently validated "
-                    "and integrated."
+                    "Research modules remain isolated until independently validated."
                 )
-
-        st.divider()
-        run_requested = st.button(
-            "▶ RUN BACKTEST",
-            type="primary",
-            use_container_width=True,
-            key="rail_run_backtest",
-        )
 
     # Strategy state survives even when the Strategy tab is collapsed.
     lab_state = get_strategy_state(2000.0)

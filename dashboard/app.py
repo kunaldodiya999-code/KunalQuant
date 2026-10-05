@@ -136,6 +136,15 @@ def render():
             ):
                 st.session_state["control_tab"] = None if active else tab_name
 
+        st.divider()
+        run_requested = st.button(
+            "▶",
+            key="rail_run_backtest",
+            help="Run configured backtest",
+            use_container_width=True,
+            type="primary",
+        )
+
     with panel_col:
         if st.session_state["control_tab"] == "Strategy":
             with st.container(border=True):

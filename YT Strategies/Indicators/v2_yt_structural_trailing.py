@@ -179,7 +179,7 @@ def simulate_structural_exit(
         if candidate is not None:
             # Never loosen the original stop and never move against the trade.
             if direction == "LONG":
-                if candidate > current_stop and candidate < entry_price * 1000000:
+                if candidate > current_stop:
                     current_stop = candidate
                     updates.append(candidate)
             else:

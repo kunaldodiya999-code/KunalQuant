@@ -32,6 +32,8 @@ from dashboard.analytics import (
     key_metrics,
     monthly_summary,
 )
+from dashboard.optimizer import OPTIMIZABLE_PARAMETERS, apply_parameter, rank_sweep, sweep_values
+from dashboard.strategy_controls import render_strategy_lab
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -63,41 +65,35 @@ def empty_indicator_provider(timestamp: int, candle: Candle) -> IndicatorSnapsho
     return IndicatorSnapshot()
 
 
-def run_backtest(start: date, end: date, capital: float, risk: float):
+def run_backtest(
+    start: date,
+    end: date,
+    capital: float,
+    config: V2Config,
+    execution_policy: V2ExecutionPolicy,
+):
     start_dt = datetime.combine(start, time.min)
     end_dt = datetime.combine(end + timedelta(days=1), time.min) - timedelta(seconds=1)
-
     candles = load_nifty_candles(epoch_seconds(start_dt), epoch_seconds(end_dt))
     if len(candles) < 2:
         raise RuntimeError("Not enough NIFTY 1-minute candles in the selected window.")
-
-    config = V2Config(
-        trade_instrument="CALL",
-        market_bias="NEUTRAL",
-        selected_timeframes=("1M",),
-        selected_triggers=("CANDLE_HIGH",),
-        filter_open_high=False,
-        filter_open_low=False,
-        custom_sl_points=20.0,
-        tp_mode="RR_RATIO",
-        rr_multiplier=2.0,
-        risk_per_trade_value=risk,
-        capital_allocation_percent=100.0,
-    )
-
     return run_multi_session_backtest(
         candles=candles,
         config=config,
         resolver=OptionContractResolver(DATABASE_PATH),
         option_loader=FyersOptionCandleLoader(DATABASE_PATH),
-        execution_policy=V2ExecutionPolicy(
-            entry_buffer_points=1.0,
-            max_slippage_points=2.0,
-            fill_timeout_seconds=60,
-        ),
+        execution_policy=execution_policy,
         capital=capital,
         indicator_provider=empty_indicator_provider,
     )
+
+
+def _avg_net_r(df: pd.DataFrame) -> float:
+    closed = closed_trades(df)
+    if closed.empty:
+        return 0.0
+    values = pd.to_numeric(closed["Net R"], errors="coerce").dropna()
+    return float(values.mean()) if not values.empty else 0.0
 
 
 def render():
@@ -106,9 +102,6 @@ def render():
         page_icon="📈",
         layout="wide",
     )
-
-    st.title("KUNAL QUANT — CONTROL TERMINAL")
-    st.caption("Interactive research/control layer over the existing historical backtest engine.")
 
     with st.sidebar:
         st.header("Backtest Controls")
@@ -121,8 +114,12 @@ def render():
         capital = st.number_input(
             "Initial capital (₹)", min_value=1_000.0, value=100_000.0, step=5_000.0
         )
-        risk = st.number_input(
-            "Risk / trade (₹)", min_value=100.0, value=2_000.0, step=100.0
+        baseline_risk = st.number_input(
+            "Baseline risk / trade (₹)",
+            min_value=100.0,
+            value=2_000.0,
+            step=100.0,
+            help="Initial value shown in the Strategy Lab. The Strategy Lab value is used for the actual run.",
         )
 
         st.subheader("Research switches")
@@ -133,7 +130,121 @@ def render():
             "Research switches remain locked until independently integrated and validated."
         )
 
-        run = st.button("▶ RUN BACKTEST", type="primary", use_container_width=True)
+        sidebar_run = st.button(
+            "▶ RUN CONFIGURED BACKTEST", type="primary", use_container_width=True
+        )
+
+    title_col, lab_col = st.columns([5, 1], vertical_alignment="center")
+    with title_col:
+        st.title("KUNAL QUANT — CONTROL TERMINAL")
+        st.caption("Historical control terminal + Strategy Lab. Change inputs without changing the core engine.")
+
+    with lab_col:
+        lab = st.popover("⚙ Strategy Lab", type="primary", width="stretch")
+        with lab:
+            lab_state = render_strategy_lab(baseline_risk)
+            lab_run = st.button(
+                "▶ RUN CONFIGURED BACKTEST",
+                type="primary",
+                use_container_width=True,
+                key="lab_run_backtest",
+            )
+            st.divider()
+            st.markdown("**Current configuration**")
+            st.write({
+                "Instrument": lab_state["config"].trade_instrument,
+                "Bias": lab_state["config"].market_bias,
+                "Trigger": lab_state["config"].selected_triggers[0],
+                "SL": lab_state["config"].sl_mode,
+                "TP": lab_state["config"].tp_mode,
+            })
+
+            with st.expander("6. Quick Optimizer", expanded=False):
+                st.caption("One-parameter-at-a-time sweep. Research only; no automatic promotion.")
+                opt_param = st.selectbox(
+                    "Parameter",
+                    list(OPTIMIZABLE_PARAMETERS),
+                    format_func=lambda x: f"{OPTIMIZABLE_PARAMETERS[x][0]} · {OPTIMIZABLE_PARAMETERS[x][1]}",
+                    key="opt_parameter",
+                )
+                ranges = {
+                    "custom_sl_points": (10.0, 40.0, 5.0),
+                    "rr_multiplier": (1.0, 4.0, 0.5),
+                    "custom_tp_points": (10.0, 50.0, 5.0),
+                    "lot_value_target": (7500.0, 15000.0, 2500.0),
+                    "risk_per_trade_value": (1000.0, 3000.0, 500.0),
+                    "risk_per_trade_percent": (0.5, 2.0, 0.25),
+                    "capital_allocation_percent": (50.0, 100.0, 10.0),
+                    "entry_buffer_points": (0.0, 2.0, 0.5),
+                    "exit_buffer_points": (1.0, 3.0, 0.5),
+                    "max_slippage_points": (1.0, 3.0, 0.5),
+                    "fill_timeout_seconds": (30.0, 90.0, 15.0),
+                }
+                d_start, d_end, d_step = ranges[opt_param]
+                opt_start = st.number_input("Sweep start", value=d_start, key="opt_start")
+                opt_end = st.number_input("Sweep end", value=d_end, key="opt_end")
+                opt_step = st.number_input("Sweep step", min_value=0.01, value=d_step, key="opt_step")
+                objective = st.selectbox(
+                    "Optimize for",
+                    ["Net P&L", "Profit Factor", "Avg Net R", "Max DD"],
+                    key="opt_objective",
+                )
+                max_runs = st.number_input("Maximum runs", min_value=2, max_value=25, value=9, step=1)
+                optimize = st.button("RUN QUICK OPTIMIZER", use_container_width=True, key="run_optimizer")
+
+                if optimize:
+                    try:
+                        values = sweep_values(opt_start, opt_end, opt_step)
+                        if len(values) > int(max_runs):
+                            raise ValueError(
+                                f"{len(values)} values requested; reduce the range or increase the step. "
+                                f"Maximum is {int(max_runs)}."
+                            )
+                        rows = []
+                        with st.spinner(f"Running {len(values)} parameter tests…"):
+                            for value in values:
+                                cfg, policy = apply_parameter(
+                                    lab_state["config"], lab_state["execution_policy"], opt_param, value
+                                )
+                                result = run_backtest(start, end, capital, cfg, policy)
+                                intended_risk = (
+                                    cfg.risk_per_trade_value
+                                    if cfg.risk_method == "FIXED_AMOUNT"
+                                    else capital * cfg.risk_per_trade_percent / 100.0
+                                )
+                                trade_df = build_trade_dataframe(result, intended_risk)
+                                km = key_metrics(trade_df)
+                                rows.append({
+                                    "Value": value,
+                                    "Net P&L": result.net_pnl,
+                                    "Profit Factor": km["profit_factor"],
+                                    "Avg Net R": _avg_net_r(trade_df),
+                                    "Max DD": result.max_drawdown,
+                                    "Trades": result.closed,
+                                    "Win Rate %": result.win_rate_pct,
+                                })
+                        ranked = rank_sweep(rows, objective)
+                        st.success(f"Completed {len(ranked)} tests.")
+                        st.dataframe(
+                            ranked.style.format({
+                                "Net P&L": "₹{:,.2f}",
+                                "Profit Factor": "{:.2f}",
+                                "Avg Net R": "{:.3f}",
+                                "Max DD": "₹{:,.2f}",
+                                "Win Rate %": "{:.2f}%",
+                            }),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        if not ranked.empty:
+                            best = ranked.iloc[0]
+                            st.info(
+                                f"Best by {objective}: {opt_param} = {best['Value']} · "
+                                f"Net P&L ₹{best['Net P&L']:,.2f} · Max DD ₹{best['Max DD']:,.2f}"
+                            )
+                            st.caption("Do not promote a value from in-sample performance alone; validate it out-of-sample.")
+                    except Exception as exc:
+                        st.error(str(exc))
 
     if mode != "BACKTEST":
         st.warning(f"{mode} is intentionally disabled in this milestone.")
@@ -152,33 +263,48 @@ def render():
         f"{start.isoformat()} → {end.isoformat()}"
     )
 
-    if run:
+    if sidebar_run or lab_run:
         with st.spinner("Running real historical backtest…"):
             try:
-                result = run_backtest(start, end, capital, risk)
+                result = run_backtest(
+                    start, end, capital,
+                    lab_state["config"],
+                    lab_state["execution_policy"],
+                )
+                intended_risk = (
+                    lab_state["config"].risk_per_trade_value
+                    if lab_state["config"].risk_method == "FIXED_AMOUNT"
+                    else capital * lab_state["config"].risk_per_trade_percent / 100.0
+                )
                 st.session_state["result"] = result
-                st.session_state["trade_df"] = build_trade_dataframe(result, risk)
+                st.session_state["trade_df"] = build_trade_dataframe(result, intended_risk)
                 st.session_state["run_start"] = start
                 st.session_state["run_end"] = end
-                st.session_state["run_risk"] = risk
+                st.session_state["run_risk"] = intended_risk
+                st.session_state["run_config"] = lab_state["config"]
+                st.session_state["run_policy"] = lab_state["execution_policy"]
             except Exception as exc:
                 st.exception(exc)
                 return
 
     result = st.session_state.get("result")
     if result is None:
-        st.warning("Set the controls and press RUN BACKTEST.")
+        st.warning("Open ⚙ Strategy Lab, review the rules, then press RUN CONFIGURED BACKTEST.")
         st.markdown(
             """
-            **What is already connected**
+            **What the current engine actually does**
 
-            - Real FYERS-stored NIFTY 1-minute candles
-            - Existing Opening Breakout V2 signal engine
-            - Existing option contract resolver
-            - Existing historical option candle loader
-            - Existing execution/fill policy
-            - Existing broker cost model
-            - Existing portfolio accounting
+            **Entry:** opening candidate + selected breakout trigger. The currently connected dashboard triggers are CANDLE_HIGH and CANDLE_LOW.
+            
+            **Option:** existing Option Contract Resolver V2 selects expiry/strike; Strategy Lab exposes its supported selection modes.
+            
+            **Stop / target:** fixed points, candle level, VWAP/value modes where supported; target can be points, value or RR. Current baseline is 20-point SL + 2R target.
+            
+            **Execution:** entry/exit buffers, max slippage and historical fill timeout are configurable. Entry window 09:15–15:10 and force exit 15:15 remain locked in this runner.
+            
+            **Risk:** position size is constrained by risk budget, capital allocation and complete lots, so risk budget is not always equal to actual stop risk.
+            
+            **Research:** ATR Structural Trailing remains isolated and is not silently mixed into this optimizer.
             """
         )
         return

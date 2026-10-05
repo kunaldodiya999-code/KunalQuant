@@ -102,7 +102,7 @@ def render_strategy_lab(default_risk: float) -> dict[str, Any]:
     with st.expander("3. Stop loss / target", expanded=True):
         sl_mode = st.selectbox(
             "Stop-loss mode",
-            ["CUSTOM_POINTS", "CANDLE_1_LOW", "CANDLE_1_HIGH", "VWAP", "VALUE", "OFF"],
+            ["CUSTOM_POINTS", "CANDLE_1_LOW", "CANDLE_1_HIGH", "VALUE", "OFF"],
             index=0,
             key="lab_sl_mode",
         )
@@ -209,7 +209,8 @@ def render_strategy_lab(default_risk: float) -> dict[str, Any]:
             key="lab_fill_timeout",
         )
         st.info(
-            "Entry window 09:15–15:10 and force exit 15:15 remain locked to the current runner."
+            "Entry window 09:15–15:10 and force exit 15:15 remain locked to the current runner. "
+            "VWAP-based signal/stop controls are not exposed yet because this dashboard currently uses an empty indicator provider."
         )
 
     st.warning(

@@ -103,6 +103,7 @@ def render():
         layout="wide",
     )
 
+    run_requested = False
     # TradingView-style right control rail:
     # the tab strip stays at the far right; the active panel opens immediately
     # to its left, just like a TradingView side tool panel.

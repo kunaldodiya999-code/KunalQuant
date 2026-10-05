@@ -210,266 +210,265 @@ def render():
             )
 
         if mode != "BACKTEST":
-                st.warning(f"{mode} is intentionally disabled in this milestone.")
-                st.info(
-                    "Paper mode will reuse the same strategy/risk/analytics layer after "
-                    "the historical control panel is validated."
-                )
-                return
-        
-            if start > end:
-                st.error("From date must be on or before To date.")
-                return
-        
+            st.warning(f"{mode} is intentionally disabled in this milestone.")
             st.info(
-                f"Current engine: {strategy} · {index} · {timeframe} · "
-                f"{start.isoformat()} → {end.isoformat()}"
+                "Paper mode will reuse the same strategy/risk/analytics layer after "
+                "the historical control panel is validated."
             )
-        
-            if run_requested:
-                with st.spinner("Running real historical backtest…"):
-                    try:
-                        result = run_backtest(
-                            start, end, capital,
-                            lab_state["config"],
-                            lab_state["execution_policy"],
-                        )
-                        intended_risk = (
-                            lab_state["config"].risk_per_trade_value
-                            if lab_state["config"].risk_method == "FIXED_AMOUNT"
-                            else capital * lab_state["config"].risk_per_trade_percent / 100.0
-                        )
-                        st.session_state["result"] = result
-                        st.session_state["trade_df"] = build_trade_dataframe(result, intended_risk)
-                        st.session_state["run_start"] = start
-                        st.session_state["run_end"] = end
-                        st.session_state["run_risk"] = intended_risk
-                        st.session_state["run_config"] = lab_state["config"]
-                        st.session_state["run_policy"] = lab_state["execution_policy"]
-                    except Exception as exc:
-                        st.exception(exc)
-                        return
-        
-            result = st.session_state.get("result")
-            if result is None:
-                st.warning("Open ⚙ Strategy Lab, review the rules, then press RUN CONFIGURED BACKTEST.")
-                st.markdown(
-                    """
-                    **What the current engine actually does**
-        
-                    **Entry:** opening candidate + selected breakout trigger. The currently connected dashboard triggers are CANDLE_HIGH and CANDLE_LOW.
-                    
-                    **Option:** existing Option Contract Resolver V2 selects expiry/strike; Strategy Lab exposes its supported selection modes.
-                    
-                    **Stop / target:** fixed points, candle level, VWAP/value modes where supported; target can be points, value or RR. Current baseline is 20-point SL + 2R target.
-                    
-                    **Execution:** entry/exit buffers, max slippage and historical fill timeout are configurable. Entry window 09:15–15:10 and force exit 15:15 remain locked in this runner.
-                    
-                    **Risk:** position size is constrained by risk budget, capital allocation and complete lots, so risk budget is not always equal to actual stop risk.
-                    
-                    **Research:** ATR Structural Trailing remains isolated and is not silently mixed into this optimizer.
-                    """
-                )
-                return
-        
-            df = st.session_state.get("trade_df", pd.DataFrame())
-            closed = closed_trades(df)
-            metrics = key_metrics(df)
-            net_pct = (
-                result.net_pnl / result.initial_capital * 100.0
-                if result.initial_capital
-                else 0.0
+            return
+    
+        if start > end:
+            st.error("From date must be on or before To date.")
+            return
+    
+        st.info(
+            f"Current engine: {lab_state['strategy']} · {index} · {timeframe} · "
+            f"{start.isoformat()} → {end.isoformat()}"
+        )
+    
+        if run_requested:
+            with st.spinner("Running real historical backtest…"):
+                try:
+                    result = run_backtest(
+                        start, end, capital,
+                        lab_state["config"],
+                        lab_state["execution_policy"],
+                    )
+                    intended_risk = (
+                        lab_state["config"].risk_per_trade_value
+                        if lab_state["config"].risk_method == "FIXED_AMOUNT"
+                        else capital * lab_state["config"].risk_per_trade_percent / 100.0
+                    )
+                    st.session_state["result"] = result
+                    st.session_state["trade_df"] = build_trade_dataframe(result, intended_risk)
+                    st.session_state["run_start"] = start
+                    st.session_state["run_end"] = end
+                    st.session_state["run_risk"] = intended_risk
+                    st.session_state["run_config"] = lab_state["config"]
+                    st.session_state["run_policy"] = lab_state["execution_policy"]
+                except Exception as exc:
+                    st.exception(exc)
+                    return
+    
+        result = st.session_state.get("result")
+        if result is None:
+            st.warning("Open ⚙ Strategy Lab, review the rules, then press RUN CONFIGURED BACKTEST.")
+            st.markdown(
+                """
+                **What the current engine actually does**
+    
+                **Entry:** opening candidate + selected breakout trigger. The currently connected dashboard triggers are CANDLE_HIGH and CANDLE_LOW.
+                
+                **Option:** existing Option Contract Resolver V2 selects expiry/strike; Strategy Lab exposes its supported selection modes.
+                
+                **Stop / target:** fixed points, candle level, VWAP/value modes where supported; target can be points, value or RR. Current baseline is 20-point SL + 2R target.
+                
+                **Execution:** entry/exit buffers, max slippage and historical fill timeout are configurable. Entry window 09:15–15:10 and force exit 15:15 remain locked in this runner.
+                
+                **Risk:** position size is constrained by risk budget, capital allocation and complete lots, so risk budget is not always equal to actual stop risk.
+                
+                **Research:** ATR Structural Trailing remains isolated and is not silently mixed into this optimizer.
+                """
             )
-        
-            st.subheader("Performance")
-            c1, c2, c3, c4, c5, c6 = st.columns(6)
-            c1.metric("Net P&L", f"₹{result.net_pnl:,.2f}", f"{net_pct:.2f}%")
-            c2.metric("Trades", result.closed)
-            c3.metric("Win rate", f"{result.win_rate_pct:.2f}%")
-            c4.metric("Max DD", f"₹{result.max_drawdown:,.2f}")
-            c5.metric("Gross P&L", f"₹{result.gross_pnl:,.2f}")
-            c6.metric("Costs", f"₹{result.total_costs:,.2f}")
-        
-            k1, k2, k3, k4, k5, k6 = st.columns(6)
-            pf = metrics["profit_factor"]
-            k1.metric("Profit Factor", "∞" if pf == float("inf") else f"{pf:.2f}")
-            k2.metric("Expectancy / trade", f"₹{metrics['expectancy']:,.2f}")
-            k3.metric("Avg Winner", f"₹{metrics['avg_winner']:,.2f}")
-            k4.metric("Avg Loser", f"₹{metrics['avg_loser']:,.2f}")
-            k5.metric("Best Trade", f"₹{metrics['best_trade']:,.2f}")
-            k6.metric("Worst Trade", f"₹{metrics['worst_trade']:,.2f}")
-        
-            left, right = st.columns([2, 1])
-            with left:
-                st.subheader("Equity Curve")
-                equity = pd.DataFrame(
-                    {
-                        "Equity": [point.equity for point in result.equity_curve],
-                    },
-                    index=[
-                        datetime.fromtimestamp(point.timestamp, tz=IST)
-                        for point in result.equity_curve
-                    ],
-                )
-                st.line_chart(equity, height=320)
-        
-                st.subheader("Drawdown")
-                drawdown = pd.DataFrame(
-                    {
-                        "Drawdown": [point.drawdown for point in result.equity_curve],
-                    },
-                    index=[
-                        datetime.fromtimestamp(point.timestamp, tz=IST)
-                        for point in result.equity_curve
-                    ],
-                )
-                st.area_chart(drawdown, height=240)
-        
-            with right:
-                st.subheader("Run Summary")
-                st.write(
-                    {
-                        "NIFTY candles": len(
-                            load_nifty_candles(
-                                epoch_seconds(datetime.combine(st.session_state.get("run_start", date(2025, 1, 1)), time.min)),
-                                epoch_seconds(
-                                    datetime.combine(
-                                        st.session_state.get("run_end", date(2025, 10, 31)) + timedelta(days=1),
-                                        time.min,
-                                    )
-                                    - timedelta(seconds=1)
-                                ),
-                            )
-                        ),
-                        "Sessions": result.sessions,
-                        "Signals": result.signals,
-                        "Closed": result.closed,
-                        "Rejected": result.rejected,
-                        "Wins": result.wins,
-                        "Losses": result.losses,
-                        "Ending equity": round(result.ending_equity, 2),
-                    }
-                )
-        
-                st.subheader("Data Quality / Rejections")
-                if result.rejection_reasons:
-                    rejection_rows = [
-                        {"Reason": reason, "Count": count}
-                        for reason, count in result.rejection_reasons
-                    ]
-                    st.dataframe(pd.DataFrame(rejection_rows), use_container_width=True, hide_index=True)
-                else:
-                    st.success("No rejected trades in this run.")
-        
-            st.subheader("Monthly Performance")
-            monthly = monthly_summary(df)
-            if not monthly.empty:
-                chart = monthly.set_index("Month")[["Net P&L"]]
-                st.bar_chart(chart, height=280)
-                st.dataframe(
-                    monthly.style.format(
-                        {
-                            "Win Rate %": "{:.2f}%",
-                            "Gross P&L": "₹{:,.2f}",
-                            "Costs": "₹{:,.2f}",
-                            "Net P&L": "₹{:,.2f}",
-                            "Avg Net/Trade": "₹{:,.2f}",
-                        }
+            return
+    
+        df = st.session_state.get("trade_df", pd.DataFrame())
+        closed = closed_trades(df)
+        metrics = key_metrics(df)
+        net_pct = (
+            result.net_pnl / result.initial_capital * 100.0
+            if result.initial_capital
+            else 0.0
+        )
+    
+        st.subheader("Performance")
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        c1.metric("Net P&L", f"₹{result.net_pnl:,.2f}", f"{net_pct:.2f}%")
+        c2.metric("Trades", result.closed)
+        c3.metric("Win rate", f"{result.win_rate_pct:.2f}%")
+        c4.metric("Max DD", f"₹{result.max_drawdown:,.2f}")
+        c5.metric("Gross P&L", f"₹{result.gross_pnl:,.2f}")
+        c6.metric("Costs", f"₹{result.total_costs:,.2f}")
+    
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
+        pf = metrics["profit_factor"]
+        k1.metric("Profit Factor", "∞" if pf == float("inf") else f"{pf:.2f}")
+        k2.metric("Expectancy / trade", f"₹{metrics['expectancy']:,.2f}")
+        k3.metric("Avg Winner", f"₹{metrics['avg_winner']:,.2f}")
+        k4.metric("Avg Loser", f"₹{metrics['avg_loser']:,.2f}")
+        k5.metric("Best Trade", f"₹{metrics['best_trade']:,.2f}")
+        k6.metric("Worst Trade", f"₹{metrics['worst_trade']:,.2f}")
+    
+        left, right = st.columns([2, 1])
+        with left:
+            st.subheader("Equity Curve")
+            equity = pd.DataFrame(
+                {
+                    "Equity": [point.equity for point in result.equity_curve],
+                },
+                index=[
+                    datetime.fromtimestamp(point.timestamp, tz=IST)
+                    for point in result.equity_curve
+                ],
+            )
+            st.line_chart(equity, height=320)
+    
+            st.subheader("Drawdown")
+            drawdown = pd.DataFrame(
+                {
+                    "Drawdown": [point.drawdown for point in result.equity_curve],
+                },
+                index=[
+                    datetime.fromtimestamp(point.timestamp, tz=IST)
+                    for point in result.equity_curve
+                ],
+            )
+            st.area_chart(drawdown, height=240)
+    
+        with right:
+            st.subheader("Run Summary")
+            st.write(
+                {
+                    "NIFTY candles": len(
+                        load_nifty_candles(
+                            epoch_seconds(datetime.combine(st.session_state.get("run_start", date(2025, 1, 1)), time.min)),
+                            epoch_seconds(
+                                datetime.combine(
+                                    st.session_state.get("run_end", date(2025, 10, 31)) + timedelta(days=1),
+                                    time.min,
+                                )
+                                - timedelta(seconds=1)
+                            ),
+                        )
                     ),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-        
-            st.subheader("Exit Analysis")
-            exits = exit_summary(df)
-            if not exits.empty:
-                st.dataframe(
-                    exits.style.format(
-                        {
-                            "Win Rate %": "{:.2f}%",
-                            "Gross P&L": "₹{:,.2f}",
-                            "Net P&L": "₹{:,.2f}",
-                        }
-                    ),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-        
-            st.subheader("Risk & Trade Mechanics")
-            r1, r2, r3, r4, r5, r6 = st.columns(6)
-            r1.metric("Avg holding", f"{metrics['avg_holding_minutes']:.1f} min")
-            r2.metric("Max win streak", int(metrics["max_win_streak"]))
-            r3.metric("Max loss streak", int(metrics["max_loss_streak"]))
-            if not closed.empty:
-                avg_r = closed["Realized R"].dropna().mean()
-                avg_net_r = closed["Net R"].dropna().mean()
-                avg_risk = closed["Strategy Risk"].dropna().mean()
-                r4.metric("Avg realized R", f"{avg_r:.2f}" if pd.notna(avg_r) else "N/A")
-                r5.metric("Avg net R", f"{avg_net_r:.2f}" if pd.notna(avg_net_r) else "N/A")
-                r6.metric("Avg actual stop risk", f"₹{avg_risk:,.2f}" if pd.notna(avg_risk) else "N/A")
-            else:
-                r4.metric("Avg realized R", "N/A")
-                r5.metric("Avg net R", "N/A")
-                r6.metric("Avg actual stop risk", "N/A")
-        
-            if not closed.empty:
-                cost_cols = ["Brokerage", "Exchange Txn", "STT", "SEBI", "Stamp Duty", "IPFT", "GST"]
-                cost_values = closed[cost_cols].sum()
-                cost_df = pd.DataFrame({"Cost Component": cost_values.index, "Amount": cost_values.values})
-                mc1, mc2 = st.columns([1, 2])
-                with mc1:
-                    st.subheader("Broker Cost Breakdown")
-                    st.dataframe(
-                        cost_df.style.format({"Amount": "₹{:,.2f}"}),
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-                with mc2:
-                    st.subheader("Cost Components")
-                    st.bar_chart(cost_df.set_index("Cost Component")[["Amount"]], height=260)
-        
-            st.subheader("Trade Log")
-            if not df.empty:
-                f1, f2, f3 = st.columns(3)
-                with f1:
-                    status_filter = st.multiselect(
-                        "Status",
-                        sorted(df["Status"].dropna().unique()),
-                        default=sorted(df["Status"].dropna().unique()),
-                    )
-                with f2:
-                    exit_filter = st.multiselect(
-                        "Exit reason",
-                        sorted(df["Exit Reason"].dropna().unique()),
-                        default=sorted(df["Exit Reason"].dropna().unique()),
-                    )
-                with f3:
-                    contract_filter = st.text_input("Contract contains", "")
-        
-                filtered = df[df["Status"].isin(status_filter)]
-                if exit_filter:
-                    filtered = filtered[filtered["Exit Reason"].isin(exit_filter) | filtered["Exit Reason"].isna()]
-                if contract_filter:
-                    filtered = filtered[
-                        filtered["Contract"].str.contains(contract_filter, case=False, na=False)
-                    ]
-        
-                display_columns = [
-                    "Date", "Time", "Contract", "Direction", "Status", "Entry", "Exit",
-                    "Qty", "Lots", "Stop", "Target", "Gross P&L", "Costs", "Net P&L",
-                    "Exit Reason", "Holding (min)", "Strategy Risk", "Realized R", "Net R",
+                    "Sessions": result.sessions,
+                    "Signals": result.signals,
+                    "Closed": result.closed,
+                    "Rejected": result.rejected,
+                    "Wins": result.wins,
+                    "Losses": result.losses,
+                    "Ending equity": round(result.ending_equity, 2),
+                }
+            )
+    
+            st.subheader("Data Quality / Rejections")
+            if result.rejection_reasons:
+                rejection_rows = [
+                    {"Reason": reason, "Count": count}
+                    for reason, count in result.rejection_reasons
                 ]
+                st.dataframe(pd.DataFrame(rejection_rows), use_container_width=True, hide_index=True)
+            else:
+                st.success("No rejected trades in this run.")
+    
+        st.subheader("Monthly Performance")
+        monthly = monthly_summary(df)
+        if not monthly.empty:
+            chart = monthly.set_index("Month")[["Net P&L"]]
+            st.bar_chart(chart, height=280)
+            st.dataframe(
+                monthly.style.format(
+                    {
+                        "Win Rate %": "{:.2f}%",
+                        "Gross P&L": "₹{:,.2f}",
+                        "Costs": "₹{:,.2f}",
+                        "Net P&L": "₹{:,.2f}",
+                        "Avg Net/Trade": "₹{:,.2f}",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+    
+        st.subheader("Exit Analysis")
+        exits = exit_summary(df)
+        if not exits.empty:
+            st.dataframe(
+                exits.style.format(
+                    {
+                        "Win Rate %": "{:.2f}%",
+                        "Gross P&L": "₹{:,.2f}",
+                        "Net P&L": "₹{:,.2f}",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+    
+        st.subheader("Risk & Trade Mechanics")
+        r1, r2, r3, r4, r5, r6 = st.columns(6)
+        r1.metric("Avg holding", f"{metrics['avg_holding_minutes']:.1f} min")
+        r2.metric("Max win streak", int(metrics["max_win_streak"]))
+        r3.metric("Max loss streak", int(metrics["max_loss_streak"]))
+        if not closed.empty:
+            avg_r = closed["Realized R"].dropna().mean()
+            avg_net_r = closed["Net R"].dropna().mean()
+            avg_risk = closed["Strategy Risk"].dropna().mean()
+            r4.metric("Avg realized R", f"{avg_r:.2f}" if pd.notna(avg_r) else "N/A")
+            r5.metric("Avg net R", f"{avg_net_r:.2f}" if pd.notna(avg_net_r) else "N/A")
+            r6.metric("Avg actual stop risk", f"₹{avg_risk:,.2f}" if pd.notna(avg_risk) else "N/A")
+        else:
+            r4.metric("Avg realized R", "N/A")
+            r5.metric("Avg net R", "N/A")
+            r6.metric("Avg actual stop risk", "N/A")
+    
+        if not closed.empty:
+            cost_cols = ["Brokerage", "Exchange Txn", "STT", "SEBI", "Stamp Duty", "IPFT", "GST"]
+            cost_values = closed[cost_cols].sum()
+            cost_df = pd.DataFrame({"Cost Component": cost_values.index, "Amount": cost_values.values})
+            mc1, mc2 = st.columns([1, 2])
+            with mc1:
+                st.subheader("Broker Cost Breakdown")
                 st.dataframe(
-                    filtered[display_columns],
+                    cost_df.style.format({"Amount": "₹{:,.2f}"}),
                     use_container_width=True,
                     hide_index=True,
                 )
-        
-            st.caption(
-                "Dashboard is display/control only. It does not alter locked strategy definitions, "
-                "option selection, risk rules, execution behavior, lifecycle, or accounting."
+            with mc2:
+                st.subheader("Cost Components")
+                st.bar_chart(cost_df.set_index("Cost Component")[["Amount"]], height=260)
+    
+        st.subheader("Trade Log")
+        if not df.empty:
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                status_filter = st.multiselect(
+                    "Status",
+                    sorted(df["Status"].dropna().unique()),
+                    default=sorted(df["Status"].dropna().unique()),
+                )
+            with f2:
+                exit_filter = st.multiselect(
+                    "Exit reason",
+                    sorted(df["Exit Reason"].dropna().unique()),
+                    default=sorted(df["Exit Reason"].dropna().unique()),
+                )
+            with f3:
+                contract_filter = st.text_input("Contract contains", "")
+    
+            filtered = df[df["Status"].isin(status_filter)]
+            if exit_filter:
+                filtered = filtered[filtered["Exit Reason"].isin(exit_filter) | filtered["Exit Reason"].isna()]
+            if contract_filter:
+                filtered = filtered[
+                    filtered["Contract"].str.contains(contract_filter, case=False, na=False)
+                ]
+    
+            display_columns = [
+                "Date", "Time", "Contract", "Direction", "Status", "Entry", "Exit",
+                "Qty", "Lots", "Stop", "Target", "Gross P&L", "Costs", "Net P&L",
+                "Exit Reason", "Holding (min)", "Strategy Risk", "Realized R", "Net R",
+            ]
+            st.dataframe(
+                filtered[display_columns],
+                use_container_width=True,
+                hide_index=True,
             )
-        
+    
+        st.caption(
+            "Dashboard is display/control only. It does not alter locked strategy definitions, "
+            "option selection, risk rules, execution behavior, lifecycle, or accounting."
+        )
     
 
 if __name__ == "__main__":

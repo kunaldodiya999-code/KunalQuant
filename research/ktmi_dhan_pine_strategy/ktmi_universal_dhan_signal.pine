@@ -1,0 +1,159 @@
+//@version=6
+indicator("KTMI Universal — Dhan Option Signal Lab", shorttitle="KTMI Option Lab", overlay=false)
+
+// EXPERIMENTAL ENTRY LAB
+// CALL / LONG OPTION conditions:
+//   1) Long Speed crosses UP through configurable trigger
+//   2) Momentum Speed crosses UP through configurable trigger
+// PUT / LONG OPTION conditions:
+//   1) Short Speed crosses UP through configurable trigger
+//   2) Momentum Speed crosses DOWN through configurable trigger
+//
+// Each condition can be independently ON/OFF.
+// Combination mode can require ANY or ALL enabled conditions.
+// This does not modify locked KunalQuant Python strategy definitions.
+
+groupLong = "Long Speed"
+groupShort = "Short Speed"
+groupMomentum = "Momentum Speed"
+groupEntry = "Entry Conditions"
+groupDisplay = "Display"
+
+longSource = input.string("Close", "Source", options=["Close", "Open", "High", "Low", "HL2", "HLC3", "OHLC4"], group=groupLong)
+longLength = input.int(5, "Speed Length", minval=1, group=groupLong)
+longSignalLength = input.int(9, "Signal Length", minval=1, group=groupLong)
+longSmoothing = input.string("EMA", "Smoothing", options=["EMA", "SMA", "WMA", "RMA", "HMA"], group=groupLong)
+longCalculation = input.string("TRIX", "Calculation", options=["ROC", "TRIX", "MACD"], group=groupLong)
+
+shortSource = input.string("Low", "Source", options=["Close", "Open", "High", "Low", "HL2", "HLC3", "OHLC4"], group=groupShort)
+shortLength = input.int(5, "Speed Length", minval=1, group=groupShort)
+shortSignalLength = input.int(9, "Signal Length", minval=1, group=groupShort)
+shortSmoothing = input.string("EMA", "Smoothing", options=["EMA", "SMA", "WMA", "RMA", "HMA"], group=groupShort)
+shortCalculation = input.string("TRIX", "Calculation", options=["ROC", "TRIX", "MACD"], group=groupShort)
+
+momentumSource = input.string("Close", "Source", options=["Close", "Open", "High", "Low", "HL2", "HLC3", "OHLC4"], group=groupMomentum)
+momentumLength = input.int(5, "Speed Length", minval=1, group=groupMomentum)
+momentumSignalLength = input.int(9, "Signal Length", minval=1, group=groupMomentum)
+momentumSmoothing = input.string("EMA", "Smoothing", options=["EMA", "SMA", "WMA", "RMA", "HMA"], group=groupMomentum)
+momentumCalculation = input.string("TRIX", "Calculation", options=["ROC", "TRIX", "MACD"], group=groupMomentum)
+
+callLongSpeedEnabled = input.bool(true, "CALL: Long Speed crossover", group=groupEntry)
+callMomentumEnabled = input.bool(false, "CALL: Momentum Speed crossover", group=groupEntry)
+putShortSpeedEnabled = input.bool(true, "PUT: Short Speed crossover", group=groupEntry)
+putMomentumEnabled = input.bool(false, "PUT: Momentum Speed crossover", group=groupEntry)
+
+callCombination = input.string("ANY", "CALL combination", options=["ANY", "ALL"], group=groupEntry)
+putCombination = input.string("ANY", "PUT combination", options=["ANY", "ALL"], group=groupEntry)
+
+longTrigger = input.float(0.50, "Long Speed trigger", step=0.01, group=groupEntry)
+shortTrigger = input.float(0.50, "Short Speed trigger", step=0.01, group=groupEntry)
+momentumLongTrigger = input.float(0.50, "Momentum LONG trigger", step=0.01, group=groupEntry)
+momentumShortTrigger = input.float(-0.50, "Momentum PUT trigger", step=0.01, group=groupEntry)
+
+displayMultiplier = input.float(100.0, "Display multiplier", minval=0.000001, group=groupDisplay)
+
+getSource(string source) =>
+    switch source
+        "Close" => close
+        "Open" => open
+        "High" => high
+        "Low" => low
+        "HL2" => hl2
+        "HLC3" => hlc3
+        "OHLC4" => ohlc4
+
+getMA(series float source, int length, string maType) =>
+    switch maType
+        "SMA" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        "WMA" => ta.wma(source, length)
+        "RMA" => ta.rma(source, length)
+        "HMA" =>
+            int halfLength = math.max(1, int(math.floor(length / 2.0)))
+            int sqrtLength = math.max(1, int(math.floor(math.sqrt(length))))
+            ta.wma(2.0 * ta.wma(source, halfLength) - ta.wma(source, length), sqrtLength)
+
+rocSeries(series float source, int length) =>
+    previous = source[length]
+    previous != 0.0 ? 100.0 * (source - previous) / previous : na
+
+trixSeries(series float source, int length, string smoothing) =>
+    e1 = getMA(source, length, smoothing)
+    e2 = getMA(e1, length, smoothing)
+    e3 = getMA(e2, length, smoothing)
+    previous = e3[1]
+    previous != 0.0 ? 100.0 * (e3 - previous) / previous : na
+
+macdSeries(series float source, int length, string smoothing) =>
+    fast = getMA(source, length, smoothing)
+    slow = getMA(source, length * 2, smoothing)
+    slow != 0.0 ? 100.0 * (fast - slow) / slow : na
+
+calculateSpeed(series float source, int length, string smoothing, string calculation) =>
+    raw = switch calculation
+        "ROC" => rocSeries(source, length)
+        "TRIX" => trixSeries(source, length, smoothing)
+        "MACD" => macdSeries(source, length, smoothing)
+    getMA(raw, length, smoothing)
+
+longSpeedRaw = calculateSpeed(getSource(longSource), longLength, longSmoothing, longCalculation)
+shortSpeedRaw = calculateSpeed(getSource(shortSource), shortLength, shortSmoothing, shortCalculation)
+momentumSpeedRaw = calculateSpeed(getSource(momentumSource), momentumLength, momentumSmoothing, momentumCalculation)
+
+// Existing KTMI behavior: Short Momentum is inverted after its core calculation.
+shortSpeedInverted = -shortSpeedRaw
+
+longSignalRaw = getMA(longSpeedRaw, longSignalLength, longSmoothing)
+shortSignalRaw = getMA(shortSpeedInverted, shortSignalLength, shortSmoothing)
+momentumSignalRaw = getMA(momentumSpeedRaw, momentumSignalLength, momentumSmoothing)
+
+longSpeed = longSpeedRaw * displayMultiplier
+longSignal = longSignalRaw * displayMultiplier
+shortSpeed = shortSpeedInverted * displayMultiplier
+shortSignal = shortSignalRaw * displayMultiplier
+momentumSpeed = momentumSpeedRaw * displayMultiplier
+momentumSignal = momentumSignalRaw * displayMultiplier
+
+// Individual crossing events.
+callLongSpeedSignal = ta.crossover(longSpeed, longTrigger)
+callMomentumSignal = ta.crossover(momentumSpeed, momentumLongTrigger)
+putShortSpeedSignal = ta.crossover(shortSpeed, shortTrigger)
+putMomentumSignal = ta.crossunder(momentumSpeed, momentumShortTrigger)
+
+// Combine only the conditions enabled by the user.
+callEnabledCount = (callLongSpeedEnabled ? 1 : 0) + (callMomentumEnabled ? 1 : 0)
+putEnabledCount = (putShortSpeedEnabled ? 1 : 0) + (putMomentumEnabled ? 1 : 0)
+
+callAnySignal = (callLongSpeedEnabled and callLongSpeedSignal) or (callMomentumEnabled and callMomentumSignal)
+putAnySignal = (putShortSpeedEnabled and putShortSpeedSignal) or (putMomentumEnabled and putMomentumSignal)
+
+callAllSignal = callEnabledCount > 0 and (not callLongSpeedEnabled or callLongSpeedSignal) and (not callMomentumEnabled or callMomentumSignal)
+putAllSignal = putEnabledCount > 0 and (not putShortSpeedEnabled or putShortSpeedSignal) and (not putMomentumEnabled or putMomentumSignal)
+
+buyCallSignal = callCombination == "ANY" ? callAnySignal : callAllSignal
+buyPutSignal = putCombination == "ANY" ? putAnySignal : putAllSignal
+
+plot(longSpeed, "Long Speed", color=color.lime, linewidth=2)
+plot(longSignal, "Long Signal", color=color.green)
+plot(shortSpeed, "Short Speed", color=color.red, linewidth=2)
+plot(shortSignal, "Short Signal", color=color.orange)
+plot(momentumSpeed, "Momentum Speed", color=color.aqua, linewidth=2)
+plot(momentumSignal, "Momentum Signal", color=color.blue)
+
+hline(longTrigger, "Long Trigger", color=color.lime, linestyle=hline.style_dashed)
+hline(shortTrigger, "Short Trigger", color=color.red, linestyle=hline.style_dashed)
+hline(momentumLongTrigger, "Momentum Long Trigger", color=color.aqua, linestyle=hline.style_dotted)
+hline(momentumShortTrigger, "Momentum Put Trigger", color=color.aqua, linestyle=hline.style_dotted)
+hline(0.0, "Zero", color=color.gray)
+
+plotshape(buyCallSignal, title="BUY CALL", style=shape.triangleup, location=location.bottom, color=color.lime, size=size.small, text="CALL")
+plotshape(buyPutSignal, title="BUY PUT", style=shape.triangledown, location=location.top, color=color.red, size=size.small, text="PUT")
+
+alertcondition(buyCallSignal, title="KTMI BUY CALL", message='{"strategy":"KTMI_OPTION_LAB","action":"BUY_CALL","underlying":"{{ticker}}","time":"{{time}}"}')
+alertcondition(buyPutSignal, title="KTMI BUY PUT", message='{"strategy":"KTMI_OPTION_LAB","action":"BUY_PUT","underlying":"{{ticker}}","time":"{{time}}"}')
+
+if buyCallSignal
+    label.new(bar_index, longSpeed, "BUY CALL", style=label.style_label_up, textcolor=color.white, color=color.green)
+
+if buyPutSignal
+    label.new(bar_index, shortSpeed, "BUY PUT", style=label.style_label_down, textcolor=color.white, color=color.red)

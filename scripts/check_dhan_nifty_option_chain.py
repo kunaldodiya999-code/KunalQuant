@@ -1,19 +1,19 @@
-"""Read-only Dhan NIFTY option-chain verification.
+"""Read-only Dhan NIFTY option-chain diagnostic.
 
-This script:
-1. fetches active NIFTY option expiries,
-2. selects the nearest returned expiry,
-3. fetches the corresponding option chain,
-4. prints representative CE/PE contract security IDs.
-
-It never places an order.
+This script first calls the official SDK expiry endpoint. If that endpoint
+returns a failure, it makes the same HTTP request directly so the raw HTTP
+status/body can be inspected. No credentials are printed and no order API
+is called.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import sys
-import time
 from pathlib import Path
+
+import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -24,76 +24,74 @@ from broker.dhan import DhanClient, DhanClientConfig
 
 NIFTY_SECURITY_ID = 13
 NIFTY_UNDERLYING_SEGMENT = "IDX_I"
+DHAN_API_BASE = "https://api.dhan.co/v2"
+
+
+def raw_expiry_request(client_id: str, access_token: str) -> tuple[int, str]:
+    response = requests.post(
+        f"{DHAN_API_BASE}/optionchain/expirylist",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "access-token": access_token,
+            "client-id": client_id,
+        },
+        json={
+            "UnderlyingScrip": NIFTY_SECURITY_ID,
+            "UnderlyingSeg": NIFTY_UNDERLYING_SEGMENT,
+        },
+        timeout=20,
+    )
+    return response.status_code, response.text
 
 
 def main() -> int:
     config = DhanClientConfig.from_env()
-    read_only_config = DhanClientConfig(
-        client_id=config.client_id,
-        access_token=config.access_token,
-        enable_live_orders=False,
-    )
+    client = DhanClient(
+        DhanClientConfig(
+            client_id=config.client_id,
+            access_token=config.access_token,
+            enable_live_orders=False,
+        )
+    ).connect()
 
-    client = DhanClient(read_only_config).connect()
-
-    expiry_response = client.expiry_list(
+    sdk_response = client.expiry_list(
         under_security_id=NIFTY_SECURITY_ID,
         under_exchange_segment=NIFTY_UNDERLYING_SEGMENT,
     )
 
-    if expiry_response.get("status") != "success":
-        print("Expiry list failed:")
-        print(expiry_response)
-        return 1
+    print("=" * 80)
+    print("KUNAL QUANT — DHAN NIFTY OPTION CHAIN DIAGNOSTIC")
+    print("=" * 80)
+    print(f"NIFTY security ID : {NIFTY_SECURITY_ID}")
+    print(f"Underlying segment: {NIFTY_UNDERLYING_SEGMENT}")
+    print("Live orders       : DISABLED")
+    print(f"SDK response      : {sdk_response}")
 
-    expiries = expiry_response.get("data") or []
-    if not expiries:
-        print("No active NIFTY option expiries returned.")
-        return 1
+    if sdk_response.get("status") == "success":
+        expiries = sdk_response.get("data") or []
+        print(f"Expiry count      : {len(expiries)}")
+        print(f"Nearest expiry    : {expiries[0] if expiries else 'NONE'}")
+        return 0 if expiries else 1
 
-    nearest_expiry = expiries[0]
-
-    # Dhan documents a 1 unique option-chain request / 3 seconds limit.
-    time.sleep(3.1)
-
-    chain_response = client.option_chain(
-        under_security_id=NIFTY_SECURITY_ID,
-        under_exchange_segment=NIFTY_UNDERLYING_SEGMENT,
-        expiry=nearest_expiry,
+    print()
+    print("SDK expiry_list failed. Calling the same Dhan endpoint directly...")
+    status_code, raw_body = raw_expiry_request(
+        config.client_id,
+        config.access_token,
     )
+    print(f"HTTP status       : {status_code}")
+    print("Raw response body :")
+    print(raw_body)
 
-    if chain_response.get("status") != "success":
-        print("Option chain failed:")
-        print(chain_response)
-        return 1
+    try:
+        parsed = json.loads(raw_body)
+        print("Parsed response   :")
+        print(json.dumps(parsed, indent=2))
+    except json.JSONDecodeError:
+        print("Raw body is not JSON.")
 
-    data = chain_response.get("data") or {}
-    spot = data.get("last_price")
-    option_chain = data.get("oc") or {}
-
-    print("=" * 80)
-    print("KUNAL QUANT — DHAN NIFTY OPTION CHAIN CHECK")
-    print("=" * 80)
-    print(f"Underlying security ID : {NIFTY_SECURITY_ID}")
-    print(f"Underlying segment     : {NIFTY_UNDERLYING_SEGMENT}")
-    print(f"Nearest expiry        : {nearest_expiry}")
-    print(f"NIFTY spot             : {spot}")
-    print(f"Strike count           : {len(option_chain)}")
-
-    if option_chain:
-        first_strike = sorted(option_chain, key=float)[0]
-        row = option_chain[first_strike]
-        ce = row.get("ce") or {}
-        pe = row.get("pe") or {}
-
-        print(f"Sample strike          : {first_strike}")
-        print(f"CE security ID         : {ce.get('security_id')}")
-        print(f"CE LTP                 : {ce.get('last_price')}")
-        print(f"PE security ID         : {pe.get('security_id')}")
-        print(f"PE LTP                 : {pe.get('last_price')}")
-
-    print("Live orders            : DISABLED")
-    return 0
+    return 1
 
 
 if __name__ == "__main__":

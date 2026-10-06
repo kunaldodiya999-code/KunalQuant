@@ -53,3 +53,30 @@ def test_client_connects_without_live_order() -> None:
             sys.modules.pop("dhanhq", None)
         else:
             sys.modules["dhanhq"] = original
+
+
+def test_expiry_list_is_forwarded() -> None:
+    calls: list[tuple[str, object]] = []
+
+    class FakeDhan:
+        def expiry_list(self, **kwargs):
+            calls.append(("expiry_list", kwargs))
+            return {"status": "success", "data": ["2026-10-13"]}
+
+    client = DhanClient(DhanClientConfig("client", "token"))
+    client._dhan = FakeDhan()
+
+    assert client.expiry_list(
+        under_security_id=13,
+        under_exchange_segment="IDX_I",
+    ) == {"status": "success", "data": ["2026-10-13"]}
+
+    assert calls == [
+        (
+            "expiry_list",
+            {
+                "under_security_id": 13,
+                "under_exchange_segment": "IDX_I",
+            },
+        )
+    ]

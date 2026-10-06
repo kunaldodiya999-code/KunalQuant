@@ -1,0 +1,255 @@
+//@version=6
+indicator("Kunal's Triple Momentum Indicator - KTMI Universal LITE", "KTMI Universal LITE", overlay=false, precision=2)
+
+// ============================================================================
+// KTMI UNIVERSAL LITE
+// Performance-optimized version of KTMI Universal V1.
+//
+// IMPORTANT:
+// - KTMI Universal V1 FINAL remains the reference/locked visual version.
+// - This file changes execution structure only, not the intended equations.
+// - The selected smoothing method is calculated instead of calculating all
+//   five MA types on every call.
+// - The selected calculation method is calculated instead of calculating ROC,
+//   TRIX and MACD simultaneously.
+// - Disabled momentum modules are skipped.
+// - No request.security(), no extra timeframe, no session filter.
+// ============================================================================
+
+DISPLAY_MULTIPLIER = 100.0
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SETTINGS
+// ─────────────────────────────────────────────────────────────────────────────
+groupGeneral = "GENERAL SETTINGS"
+showLevels = input.bool(true, "Show Level Lines", group=groupGeneral)
+centerLevel = input.float(0.0, "Center Line", step=0.1, group=groupGeneral)
+upperLevel = input.float(0.5, "Upper Level", step=0.1, group=groupGeneral)
+lowerLevel = input.float(-0.5, "Lower Level", step=0.1, group=groupGeneral)
+levelColor = input.color(color.gray, "Level Color", group=groupGeneral)
+
+groupMomentum = "1. MOMENTUM SETTINGS"
+momSource = input.string("Close", "Input Source", options=["Close","Open","High","Low","HL2","HLC3","OHLC4"], group=groupMomentum)
+momSpeedLength = input.int(5, "Speed Length", minval=1, group=groupMomentum)
+momSignalLength = input.int(9, "Signal Length", minval=1, group=groupMomentum)
+momSmoothing = input.string("EMA", "Smoothing Type", options=["EMA","SMA","WMA","RMA","HMA"], group=groupMomentum)
+momEnable = input.bool(false, "Enable Momentum", group=groupMomentum)
+momCalculation = input.string("TRIX", "Calculation Method", options=["ROC","TRIX","MACD"], group=groupMomentum)
+
+groupLong = "2. LONG MOMENTUM SETTINGS"
+longSource = input.string("Close", "Input Source", options=["Close","Open","High","Low","HL2","HLC3","OHLC4"], group=groupLong)
+longSpeedLength = input.int(5, "Speed Length", minval=1, group=groupLong)
+longSignalLength = input.int(9, "Signal Length", minval=1, group=groupLong)
+longSmoothing = input.string("EMA", "Smoothing Type", options=["EMA","SMA","WMA","RMA","HMA"], group=groupLong)
+longEnable = input.bool(false, "Enable Long Momentum", group=groupLong)
+longCalculation = input.string("TRIX", "Calculation Method", options=["ROC","TRIX","MACD"], group=groupLong)
+
+groupShort = "3. SHORT MOMENTUM SETTINGS"
+shortSource = input.string("Low", "Input Source", options=["Close","Open","High","Low","HL2","HLC3","OHLC4"], group=groupShort)
+shortSpeedLength = input.int(5, "Speed Length", minval=1, group=groupShort)
+shortSignalLength = input.int(9, "Signal Length", minval=1, group=groupShort)
+shortSmoothing = input.string("EMA", "Smoothing Type", options=["EMA","SMA","WMA","RMA","HMA"], group=groupShort)
+shortEnable = input.bool(true, "Enable Short Momentum", group=groupShort)
+shortCalculation = input.string("TRIX", "Calculation Method", options=["ROC","TRIX","MACD"], group=groupShort)
+
+groupFilters = "ARROW / SIGNAL TRIGGERS"
+momBuyTriggerText = input.string("", "Momentum Buy Trigger", group=groupFilters)
+momSellTriggerText = input.string("", "Momentum Sell Trigger", group=groupFilters)
+longBuyTriggerText = input.string("", "Long Buy Trigger", group=groupFilters)
+longSellTriggerText = input.string("", "Long Sell Trigger", group=groupFilters)
+shortBuyTriggerText = input.string("", "Short Buy Trigger", group=groupFilters)
+shortSellTriggerText = input.string("", "Short Sell Trigger", group=groupFilters)
+
+groupExtras = "EXTRAS"
+showFill = input.bool(true, "Fill Speed / Signal", group=groupExtras)
+showConfluence = input.bool(false, "Show Confluence Background", group=groupExtras)
+
+groupTable = "TABLE"
+showTable = input.bool(true, "Show Momentum Table", group=groupTable)
+tablePositionInput = input.string("Middle Right", "Table Position", options=["Top Right","Middle Right","Bottom Right"], group=groupTable)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SOURCE / MA FUNCTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+getSource(string name) =>
+    switch name
+        "Close" => close
+        "Open" => open
+        "High" => high
+        "Low" => low
+        "HL2" => hl2
+        "HLC3" => hlc3
+        "OHLC4" => ohlc4
+        => close
+
+// Performance-critical change:
+// only the selected MA is evaluated.
+getMA(float src, int length, string maType) =>
+    switch maType
+        "SMA" => ta.sma(src, length)
+        "EMA" => ta.ema(src, length)
+        "WMA" => ta.wma(src, length)
+        "RMA" => ta.rma(src, length)
+        "HMA" => ta.hma(src, length)
+        => ta.ema(src, length)
+
+// Performance-critical change:
+// only the selected calculation path is evaluated.
+getSpeed(float src, int length, string smoothing, string calculation) =>
+    float result = na
+
+    if calculation == "ROC"
+        previous = src[length]
+        rawROC = not na(previous) and previous != 0 ? 100.0 * (src - previous) / previous : na
+        result := getMA(rawROC, length, smoothing)
+
+    else if calculation == "TRIX"
+        e1 = getMA(src, length, smoothing)
+        e2 = getMA(e1, length, smoothing)
+        e3 = getMA(e2, length, smoothing)
+        result := not na(e3[1]) and e3[1] != 0 ? 100.0 * (e3 - e3[1]) / e3[1] : na
+
+    else
+        fastMA = getMA(src, length, smoothing)
+        slowMA = getMA(src, length * 2, smoothing)
+        result := not na(slowMA) and slowMA != 0 ? 100.0 * (fastMA - slowMA) / slowMA : na
+
+    result
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CALCULATE ONLY ENABLED MODULES
+// ─────────────────────────────────────────────────────────────────────────────
+momSrc = getSource(momSource)
+longSrc = getSource(longSource)
+shortSrc = getSource(shortSource)
+
+momSpeedRaw = momEnable ? getSpeed(momSrc, momSpeedLength, momSmoothing, momCalculation) : na
+longSpeedRaw = longEnable ? getSpeed(longSrc, longSpeedLength, longSmoothing, longCalculation) : na
+shortSpeedUnreversed = shortEnable ? getSpeed(shortSrc, shortSpeedLength, shortSmoothing, shortCalculation) : na
+
+momSignalRaw = momEnable ? getMA(momSpeedRaw, momSignalLength, momSmoothing) : na
+longSignalRaw = longEnable ? getMA(longSpeedRaw, longSignalLength, longSmoothing) : na
+shortSpeedRaw = shortEnable ? -shortSpeedUnreversed : na
+shortSignalRaw = shortEnable ? getMA(shortSpeedRaw, shortSignalLength, shortSmoothing) : na
+
+momSpeed = momSpeedRaw * DISPLAY_MULTIPLIER
+momSignal = momSignalRaw * DISPLAY_MULTIPLIER
+longSpeed = longSpeedRaw * DISPLAY_MULTIPLIER
+longSignal = longSignalRaw * DISPLAY_MULTIPLIER
+shortSpeed = shortSpeedRaw * DISPLAY_MULTIPLIER
+shortSignal = shortSignalRaw * DISPLAY_MULTIPLIER
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRIGGERS
+// ─────────────────────────────────────────────────────────────────────────────
+momBuyTrigger = str.tonumber(momBuyTriggerText)
+momSellTrigger = str.tonumber(momSellTriggerText)
+longBuyTrigger = str.tonumber(longBuyTriggerText)
+longSellTrigger = str.tonumber(longSellTriggerText)
+shortBuyTrigger = str.tonumber(shortBuyTriggerText)
+shortSellTrigger = str.tonumber(shortSellTriggerText)
+
+momBuyValueCross = ta.crossover(momSpeed, momBuyTrigger)
+momSellValueCross = ta.crossunder(momSpeed, momSellTrigger)
+longBuyValueCross = ta.crossover(longSpeed, longBuyTrigger)
+longSellValueCross = ta.crossunder(longSpeed, longSellTrigger)
+shortBuyValueCross = ta.crossover(shortSpeed, shortBuyTrigger)
+shortSellValueCross = ta.crossunder(shortSpeed, shortSellTrigger)
+
+momBuy = momEnable and not na(momBuyTrigger) and momBuyValueCross and momSpeed > momSignal and momSpeed > 0
+momSell = momEnable and not na(momSellTrigger) and momSellValueCross and momSpeed < momSignal and momSpeed < 0
+
+longBuy = longEnable and not na(longBuyTrigger) and longBuyValueCross and longSpeed > longSignal and longSpeed > 0
+longSell = longEnable and not na(longSellTrigger) and longSellValueCross and longSpeed < longSignal and longSpeed < 0
+
+shortBuy = shortEnable and not na(shortBuyTrigger) and shortBuyValueCross and shortSpeed > shortSignal and shortSpeed > 0
+shortSell = shortEnable and not na(shortSellTrigger) and shortSellValueCross and shortSpeed < shortSignal and shortSpeed < 0
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LEVELS / PLOTS
+// ─────────────────────────────────────────────────────────────────────────────
+hline(showLevels ? centerLevel : na, "Center Line", color=levelColor, linewidth=2)
+hline(showLevels ? upperLevel : na, "Upper Level", color=levelColor, linestyle=hline.style_dashed, linewidth=2)
+hline(showLevels ? lowerLevel : na, "Lower Level", color=levelColor, linestyle=hline.style_dashed, linewidth=2)
+
+scaleTop = plot(5.0, "Scale +5", display=display.none)
+scaleBottom = plot(-5.0, "Scale -5", display=display.none)
+
+pMomSpeed = plot(momEnable ? momSpeed : na, "Momentum Speed", color=color.aqua, linewidth=2)
+pMomSignal = plot(momEnable ? momSignal : na, "Momentum Signal", color=color.orange, linewidth=1)
+
+pLongSpeed = plot(longEnable ? longSpeed : na, "Long Momentum Speed", color=color.lime, linewidth=2)
+pLongSignal = plot(longEnable ? longSignal : na, "Long Momentum Signal", color=color.green, linewidth=1)
+
+pShortSpeed = plot(shortEnable ? shortSpeed : na, "Short Momentum Speed", color=color.fuchsia, linewidth=2)
+pShortSignal = plot(shortEnable ? shortSignal : na, "Short Momentum Signal", color=color.red, linewidth=1)
+
+fill(pMomSpeed, pMomSignal, color=showFill and momEnable ? color.new(color.aqua, 88) : na, title="Momentum Fill")
+fill(pLongSpeed, pLongSignal, color=showFill and longEnable ? color.new(color.lime, 88) : na, title="Long Fill")
+fill(pShortSpeed, pShortSignal, color=showFill and shortEnable ? color.new(color.fuchsia, 88) : na, title="Short Fill")
+
+plotshape(momBuy, "Momentum Buy", shape.triangleup, location.bottom, color=color.lime, size=size.tiny)
+plotshape(momSell, "Momentum Sell", shape.triangledown, location.top, color=color.red, size=size.tiny)
+plotshape(longBuy, "Long Momentum Buy", shape.triangleup, location.bottom, color=color.green, size=size.tiny)
+plotshape(longSell, "Long Momentum Sell", shape.triangledown, location.top, color=color.orange, size=size.tiny)
+plotshape(shortBuy, "Short Momentum Buy", shape.triangleup, location.bottom, color=color.aqua, size=size.tiny)
+plotshape(shortSell, "Short Momentum Sell", shape.triangledown, location.top, color=color.fuchsia, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFLUENCE
+// ─────────────────────────────────────────────────────────────────────────────
+enabledCount = (momEnable ? 1 : 0) + (longEnable ? 1 : 0) + (shortEnable ? 1 : 0)
+
+bullishCount = (momEnable and momSpeed > momSignal ? 1 : 0) +
+               (longEnable and longSpeed > longSignal ? 1 : 0) +
+               (shortEnable and shortSpeed > shortSignal ? 1 : 0)
+
+bearishCount = (momEnable and momSpeed < momSignal ? 1 : 0) +
+               (longEnable and longSpeed < longSignal ? 1 : 0) +
+               (shortEnable and shortSpeed < shortSignal ? 1 : 0)
+
+bullishConfluence = showConfluence and enabledCount > 1 and bullishCount == enabledCount
+bearishConfluence = showConfluence and enabledCount > 1 and bearishCount == enabledCount
+
+bgcolor(bullishConfluence ? color.new(color.green, 90) : bearishConfluence ? color.new(color.red, 90) : na, title="Confluence Background")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TABLE — updated only on the last bar
+// ─────────────────────────────────────────────────────────────────────────────
+tablePosition = tablePositionInput == "Top Right" ? position.top_right : tablePositionInput == "Bottom Right" ? position.bottom_right : position.middle_right
+var table ktmiTable = table.new(position.middle_right, 4, 4, border_width=1)
+
+if barstate.islast and showTable
+    table.set_position(ktmiTable, tablePosition)
+
+    table.cell(ktmiTable, 0, 0, "KTMI", text_color=color.white, text_size=size.small)
+    table.cell(ktmiTable, 1, 0, "Speed", text_color=color.white, text_size=size.small)
+    table.cell(ktmiTable, 2, 0, "Signal", text_color=color.white, text_size=size.small)
+    table.cell(ktmiTable, 3, 0, "State", text_color=color.white, text_size=size.small)
+
+    table.cell(ktmiTable, 0, 1, "Momentum", text_color=color.white, text_size=size.small)
+    table.cell(ktmiTable, 1, 1, momEnable ? str.tostring(momSpeed, "#.##") : "OFF", text_color=color.aqua, text_size=size.small)
+    table.cell(ktmiTable, 2, 1, momEnable ? str.tostring(momSignal, "#.##") : "OFF", text_color=color.orange, text_size=size.small)
+    table.cell(ktmiTable, 3, 1, momEnable ? (momSpeed > momSignal ? "BULL" : "BEAR") : "OFF", text_color=color.white, text_size=size.small)
+
+    table.cell(ktmiTable, 0, 2, "Long", text_color=color.white, text_size=size.small)
+    table.cell(ktmiTable, 1, 2, longEnable ? str.tostring(longSpeed, "#.##") : "OFF", text_color=color.lime, text_size=size.small)
+    table.cell(ktmiTable, 2, 2, longEnable ? str.tostring(longSignal, "#.##") : "OFF", text_color=color.green, text_size=size.small)
+    table.cell(ktmiTable, 3, 2, longEnable ? (longSpeed > longSignal ? "BULL" : "BEAR") : "OFF", text_color=color.white, text_size=size.small)
+
+    table.cell(ktmiTable, 0, 3, "Short", text_color=color.white, text_size=size.small)
+    table.cell(ktmiTable, 1, 3, shortEnable ? str.tostring(shortSpeed, "#.##") : "OFF", text_color=color.fuchsia, text_size=size.small)
+    table.cell(ktmiTable, 2, 3, shortEnable ? str.tostring(shortSignal, "#.##") : "OFF", text_color=color.red, text_size=size.small)
+    table.cell(ktmiTable, 3, 3, shortEnable ? (shortSpeed > shortSignal ? "BULL" : "BEAR") : "OFF", text_color=color.white, text_size=size.small)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALERTS
+// ─────────────────────────────────────────────────────────────────────────────
+alertcondition(momBuy, "Momentum Buy", "KTMI: Momentum Buy trigger crossed")
+alertcondition(momSell, "Momentum Sell", "KTMI: Momentum Sell trigger crossed")
+alertcondition(longBuy, "Long Momentum Buy", "KTMI: Long Momentum Buy trigger crossed")
+alertcondition(longSell, "Long Momentum Sell", "KTMI: Long Momentum Sell trigger crossed")
+alertcondition(shortBuy, "Short Momentum Buy", "KTMI: Short Momentum Buy trigger crossed")
+alertcondition(shortSell, "Short Momentum Sell", "KTMI: Short Momentum Sell trigger crossed")
+alertcondition(bullishConfluence, "Bullish Confluence", "KTMI: All enabled momentum modules are bullish")
+alertcondition(bearishConfluence, "Bearish Confluence", "KTMI: All enabled momentum modules are bearish")

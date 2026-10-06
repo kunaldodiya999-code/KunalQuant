@@ -1,0 +1,3 @@
+# KunalQuant DhanHQ integration
+# Official DhanHQ Python SDK.
+dhanhq>=2.2.0,<3

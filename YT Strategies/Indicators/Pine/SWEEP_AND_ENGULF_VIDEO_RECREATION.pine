@@ -1,0 +1,378 @@
+//@version=6
+indicator("KunalQuant — Sweep & Engulf (Video Recreation)", shorttitle="KQ Sweep & Engulf", overlay=true, max_boxes_count=20, max_labels_count=200)
+
+// ============================================================================
+// KUNALQUANT — SWEEP & ENGULF
+// Recreation of the indicator demonstrated in the supplied LuxAlgo/Quant video.
+//
+// SOURCE-DERIVED CORE LOGIC
+// Bullish: current low takes the previous candle low AND current close finishes
+//          above the previous candle high.
+// Bearish: current high takes the previous candle high AND current close finishes
+//          below the previous candle low.
+//
+// The video then adds:
+//   - Previous Candle Direction filter
+//   - EMA trend filter / EMA display
+//   - ATR-based TP/SL
+//   - Candle High/Low alternative stop
+//   - configurable Risk/Reward
+//   - one active trade at a time
+//   - TP/SL boxes projected 6 bars initially and extended until exit
+//
+// This is an INDICATOR for visual inspection. It is not connected to KunalQuant
+// execution, FYERS, Dhan, or production strategy logic.
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIGNAL FILTERS
+// ─────────────────────────────────────────────────────────────────────────────
+grpSignal = "Signal Filters"
+
+previousDirection = input.string(
+     "Any",
+     "Previous Candle Direction",
+     options=["Any", "Same Direction"],
+     group=grpSignal,
+     tooltip="Any = allow a sweep after either candle direction. Same Direction = bullish sweep requires a bullish previous candle and bearish sweep requires a bearish previous candle."
+     )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMA TREND FILTER
+// Video behavior: one checkbox controls both EMA visibility and signal filter.
+// ─────────────────────────────────────────────────────────────────────────────
+grpEMA = "EMA Trend Filter"
+
+useShowEMA = input.bool(
+     false,
+     "Use & Show EMA Trend Filter",
+     group=grpEMA,
+     tooltip="When enabled, bullish signals require price above the EMA and bearish signals require price below the EMA. The EMA is also displayed."
+     )
+
+emaLength = input.int(200, "EMA Length", minval=1, group=grpEMA)
+
+emaValue = ta.ema(close, emaLength)
+emaBull = close > emaValue
+emaBear = close < emaValue
+
+plot(
+     useShowEMA ? emaValue : na,
+     "EMA",
+     color=emaBull ? color.green : color.red,
+     linewidth=2
+     )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RISK MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+grpRisk = "Risk Management"
+
+atrLength = input.int(14, "ATR Length", minval=1, group=grpRisk)
+atrMultiplier = input.float(2.0, "ATR Multiplier", minval=0.1, step=0.1, group=grpRisk)
+riskReward = input.float(2.0, "Risk/Reward Ratio", minval=0.1, step=0.1, group=grpRisk)
+
+stopLossMethod = input.string(
+     "ATR",
+     "Stop Loss Method",
+     options=["ATR", "Candle High/Low"],
+     group=grpRisk,
+     tooltip="ATR uses ATR × multiplier. Candle High/Low places the stop at the signal candle low for bullish trades or high for bearish trades."
+     )
+
+boxProjectionBars = input.int(
+     6,
+     "Initial Box Projection",
+     minval=1,
+     maxval=50,
+     group=grpRisk
+     )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VISUALS
+// ─────────────────────────────────────────────────────────────────────────────
+grpVisual = "Visuals"
+
+showEntryLabels = input.bool(true, "Show Signal Labels", group=grpVisual)
+showTradeBoxes = input.bool(true, "Show TP/SL Boxes", group=grpVisual)
+showEntryLine = input.bool(true, "Show Entry Line", group=grpVisual)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SWEEP + ENGULF LOGIC
+// ─────────────────────────────────────────────────────────────────────────────
+bullishPrevious =
+     close[1] > open[1]
+
+bearishPrevious =
+     close[1] < open[1]
+
+previousAllowsBull =
+     previousDirection == "Any" or bullishPrevious
+
+previousAllowsBear =
+     previousDirection == "Any" or bearishPrevious
+
+bullishSweepEngulf =
+     low < low[1] and
+     close > high[1] and
+     previousAllowsBull
+
+bearishSweepEngulf =
+     high > high[1] and
+     close < low[1] and
+     previousAllowsBear
+
+trendAllowsBull =
+     not useShowEMA or emaBull
+
+trendAllowsBear =
+     not useShowEMA or emaBear
+
+atr = ta.atr(atrLength)
+atrReady = not na(atr)
+
+rawBullSignal =
+     bullishSweepEngulf and
+     trendAllowsBull and
+     atrReady
+
+rawBearSignal =
+     bearishSweepEngulf and
+     trendAllowsBear and
+     atrReady
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRADE STATE
+// One active trade at a time, as demonstrated in the video.
+// ─────────────────────────────────────────────────────────────────────────────
+var bool tradeActive = false
+var int tradeDirection = 0              // 1 = long, -1 = short
+var float entryPrice = na
+var float stopPrice = na
+var float targetPrice = na
+var int entryBar = na
+var int exitBar = na
+
+var box tpBox = na
+var box slBox = na
+var line entryLine = na
+
+// A signal is accepted only when there is no active trade.
+// This prevents subsequent signals from appearing until TP/SL is reached.
+longSignal =
+     rawBullSignal and
+     not tradeActive
+
+shortSignal =
+     rawBearSignal and
+     not tradeActive
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPEN LONG
+// ─────────────────────────────────────────────────────────────────────────────
+if longSignal
+    tradeActive := true
+    tradeDirection := 1
+    entryPrice := close
+    entryBar := bar_index
+    exitBar := na
+
+    stopPrice :=
+         stopLossMethod == "ATR" ?
+         entryPrice - atr * atrMultiplier :
+         low
+
+    riskDistance = entryPrice - stopPrice
+    targetPrice := entryPrice + riskDistance * riskReward
+
+    if showTradeBoxes
+        tpBox := box.new(
+             left=bar_index,
+             top=targetPrice,
+             right=bar_index + boxProjectionBars,
+             bottom=entryPrice,
+             bgcolor=color.new(color.green, 84),
+             border_color=color.new(color.green, 35)
+             )
+
+        slBox := box.new(
+             left=bar_index,
+             top=entryPrice,
+             right=bar_index + boxProjectionBars,
+             bottom=stopPrice,
+             bgcolor=color.new(color.red, 84),
+             border_color=color.new(color.red, 35)
+             )
+
+    if showEntryLine
+        entryLine := line.new(
+             x1=bar_index,
+             y1=entryPrice,
+             x2=bar_index + boxProjectionBars,
+             y2=entryPrice,
+             color=color.new(color.white, 25),
+             style=line.style_dotted
+             )
+
+    if showEntryLabels
+        label.new(
+             bar_index,
+             low,
+             "SWEEP ↑",
+             style=label.style_label_up,
+             color=color.green,
+             textcolor=color.white,
+             size=size.small
+             )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPEN SHORT
+// ─────────────────────────────────────────────────────────────────────────────
+if shortSignal
+    tradeActive := true
+    tradeDirection := -1
+    entryPrice := close
+    entryBar := bar_index
+    exitBar := na
+
+    stopPrice :=
+         stopLossMethod == "ATR" ?
+         entryPrice + atr * atrMultiplier :
+         high
+
+    riskDistance = stopPrice - entryPrice
+    targetPrice := entryPrice - riskDistance * riskReward
+
+    if showTradeBoxes
+        tpBox := box.new(
+             left=bar_index,
+             top=entryPrice,
+             right=bar_index + boxProjectionBars,
+             bottom=targetPrice,
+             bgcolor=color.new(color.green, 84),
+             border_color=color.new(color.green, 35)
+             )
+
+        slBox := box.new(
+             left=bar_index,
+             top=stopPrice,
+             right=bar_index + boxProjectionBars,
+             bottom=entryPrice,
+             bgcolor=color.new(color.red, 84),
+             border_color=color.new(color.red, 35)
+             )
+
+    if showEntryLine
+        entryLine := line.new(
+             x1=bar_index,
+             y1=entryPrice,
+             x2=bar_index + boxProjectionBars,
+             y2=entryPrice,
+             color=color.new(color.white, 25),
+             style=line.style_dotted
+             )
+
+    if showEntryLabels
+        label.new(
+             bar_index,
+             high,
+             "SWEEP ↓",
+             style=label.style_label_down,
+             color=color.red,
+             textcolor=color.white,
+             size=size.small
+             )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACTIVE TRADE MANAGEMENT
+// Video behavior: wick touching TP/SL is sufficient to close the active trade.
+// When both levels are touched on the same candle, SL is given priority as a
+// conservative deterministic choice; the video does not specify same-bar
+// precedence explicitly.
+// ─────────────────────────────────────────────────────────────────────────────
+if tradeActive and bar_index > entryBar
+    bool hitStop = false
+    bool hitTarget = false
+
+    if tradeDirection == 1
+        hitStop := low <= stopPrice
+        hitTarget := high >= targetPrice
+    else
+        hitStop := high >= stopPrice
+        hitTarget := low <= targetPrice
+
+    if hitStop or hitTarget
+        // Conservative same-bar resolution.
+        bool exitAtStop = hitStop
+        bool exitAtTarget = not hitStop and hitTarget
+
+        exitBar := bar_index
+        tradeActive := false
+
+        if showTradeBoxes
+            if not na(tpBox)
+                box.set_right(tpBox, bar_index)
+            if not na(slBox)
+                box.set_right(slBox, bar_index)
+
+        if not na(entryLine)
+            line.set_x2(entryLine, bar_index)
+
+        if showEntryLabels
+            if exitAtStop
+                label.new(
+                     bar_index,
+                     tradeDirection == 1 ? low : high,
+                     "SL",
+                     style=tradeDirection == 1 ? label.style_label_down : label.style_label_up,
+                     color=color.red,
+                     textcolor=color.white,
+                     size=size.tiny
+                     )
+            else if exitAtTarget
+                label.new(
+                     bar_index,
+                     tradeDirection == 1 ? high : low,
+                     "TP",
+                     style=tradeDirection == 1 ? label.style_label_down : label.style_label_up,
+                     color=color.green,
+                     textcolor=color.white,
+                     size=size.tiny
+                     )
+
+        tpBox := na
+        slBox := na
+        entryLine := na
+        tradeDirection := 0
+        entryPrice := na
+        stopPrice := na
+        targetPrice := na
+        entryBar := na
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXTEND ACTIVE BOXES UNTIL EXIT
+// ─────────────────────────────────────────────────────────────────────────────
+if tradeActive
+    if showTradeBoxes
+        if not na(tpBox)
+            box.set_right(tpBox, math.max(bar_index, entryBar + boxProjectionBars))
+        if not na(slBox)
+            box.set_right(slBox, math.max(bar_index, entryBar + boxProjectionBars))
+
+    if not na(entryLine)
+        line.set_x2(entryLine, math.max(bar_index, entryBar + boxProjectionBars))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALERTS
+// ─────────────────────────────────────────────────────────────────────────────
+alertcondition(
+     longSignal,
+     "Bullish Sweep & Engulf",
+     "Bullish Sweep & Engulf signal"
+     )
+
+alertcondition(
+     shortSignal,
+     "Bearish Sweep & Engulf",
+     "Bearish Sweep & Engulf signal"
+     )

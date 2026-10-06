@@ -53,6 +53,17 @@ class DhanClient:
             return self.raw.get_trade_book()
         return self.raw.get_trade_book(order_id)
 
+    def expiry_list(
+        self,
+        *,
+        under_security_id: int | str,
+        under_exchange_segment: str,
+    ) -> Any:
+        return self.raw.expiry_list(
+            under_security_id=under_security_id,
+            under_exchange_segment=under_exchange_segment,
+        )
+
     def option_chain(
         self,
         *,

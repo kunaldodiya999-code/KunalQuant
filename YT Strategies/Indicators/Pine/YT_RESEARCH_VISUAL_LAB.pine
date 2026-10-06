@@ -1,0 +1,568 @@
+//@version=6
+indicator("KunalQuant — YT Research Visual Lab", "KQ YT Lab", overlay=true, max_lines_count=500, max_boxes_count=300, max_labels_count=500)
+
+// ============================================================================
+// KUNALQUANT — YOUTUBE RESEARCH VISUAL LAB
+// ============================================================================
+// Purpose:
+//   Visual research only. This script exposes the mechanisms from the
+//   YT/Claude research pack on the TradingView chart so they can be inspected
+//   before any component is considered for SL/TSL or strategy integration.
+//
+// IMPORTANT:
+//   "Video-supported" means the source material describes the behavior.
+//   "Python-derived" means this is a Pine translation of the research logic.
+//   "Proxy" means Pine/OHLCV cannot reproduce the required external data exactly.
+//   No module here changes KunalQuant production strategy behavior.
+//
+// Research modules:
+//   1 Structural Leg Profiler
+//   2 Smart Money Concepts
+//   3 Anchored Volume Profile (OHLCV proxy)
+//   4 Order Block Strength
+//   5 Sweep & Engulf
+//   6 Session Range Sweep + CHoCH
+//   7 AMD / Power of Three
+//   8 Oscillator Matrix
+//   9 CVD Absorption (estimated delta)
+//  10 Liquidity Delta Profiler (estimated delta)
+//  11 Session Volume MA
+//  12 Peak Activity Range
+//  13 Cluster Volume Profile (OHLCV proxy)
+//  14 Gamma Exposure (manual research proxy)
+//  15 Volume Surprise
+//  16 Machine Learning MA (adaptive MA proxy)
+//  17 Log Regression Channel
+//  18 RSI Divergence Optimizer
+//  19 Universal Signal Backtester (visual event counter only)
+//
+// ============================================================================
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GLOBAL DISPLAY
+// ─────────────────────────────────────────────────────────────────────────────
+g0 = "00 — GLOBAL"
+showDashboard = input.bool(true, "Show module dashboard", group=g0)
+confirmedOnly = input.bool(true, "Signals on confirmed bars only", group=g0)
+labelSize = input.string("Small", "Label size", options=["Tiny","Small","Normal"], group=g0)
+
+f_size() =>
+    labelSize == "Tiny" ? size.tiny : labelSize == "Normal" ? size.normal : size.small
+
+f_signalBar() =>
+    not confirmedOnly or barstate.isconfirmed
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 01 — STRUCTURAL LEG PROFILER
+// Source status: Python-derived / strongest SL-TSL research candidate.
+// ─────────────────────────────────────────────────────────────────────────────
+g1 = "01 — Structural Leg Profiler"
+enLeg = input.bool(true, "Enable", group=g1)
+legPivot = input.int(2, "Pivot confirmation", minval=1, maxval=10, group=g1)
+legAtrLen = input.int(14, "ATR length", minval=1, group=g1)
+legAtrMult = input.float(2.5, "Leg confirmation × ATR", minval=0.1, step=0.1, group=g1)
+legBuffer = input.float(0.25, "Trail buffer × ATR", minval=0.0, step=0.05, group=g1)
+showLegTrail = input.bool(true, "Show structural trail", group=g1)
+
+legAtr = ta.atr(legAtrLen)
+legPH = ta.pivothigh(high, legPivot, legPivot)
+legPL = ta.pivotlow(low, legPivot, legPivot)
+
+var float legHigh = na
+var float legLow = na
+var float longTrail = na
+var float shortTrail = na
+
+if not na(legPH)
+    legHigh := legPH
+if not na(legPL)
+    legLow := legPL
+
+if enLeg
+    if not na(legLow) and close > legLow + legAtr * legAtrMult
+        longTrail := math.max(nz(longTrail, legLow - legAtr * legBuffer), legLow - legAtr * legBuffer)
+    if not na(legHigh) and close < legHigh - legAtr * legAtrMult
+        shortTrail := math.min(nz(shortTrail, legHigh + legAtr * legBuffer), legHigh + legAtr * legBuffer)
+
+plot(enLeg and showLegTrail ? longTrail : na, "Structural Long Trail", color=color.lime, linewidth=2, style=plot.style_linebr)
+plot(enLeg and showLegTrail ? shortTrail : na, "Structural Short Trail", color=color.red, linewidth=2, style=plot.style_linebr)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 02 — SMART MONEY CONCEPTS
+// Source status: Video/Python-derived. Sweep → BOS/MSS → FVG/OB context.
+// ─────────────────────────────────────────────────────────────────────────────
+g2 = "02 — Smart Money Concepts"
+enSMC = input.bool(true, "Enable", group=g2)
+smcSwing = input.int(5, "Swing length", minval=2, maxval=20, group=g2)
+smcSweepMode = input.string("Wick Only", "Sweep mode", options=["Wick Only","Candle Close","Both"], group=g2)
+smcMinSweepPct = input.float(0.0, "Minimum sweep % of price", minval=0.0, step=0.01, group=g2)
+smcBosWindow = input.int(20, "BOS window", minval=1, group=g2)
+showFVG = input.bool(true, "Show FVG", group=g2)
+showOB = input.bool(true, "Show order blocks", group=g2)
+
+smcPH = ta.pivothigh(high, smcSwing, smcSwing)
+smcPL = ta.pivotlow(low, smcSwing, smcSwing)
+var float lastPH = na
+var float lastPL = na
+if not na(smcPH)
+    lastPH := smcPH
+if not na(smcPL)
+    lastPL := smcPL
+
+minSweep = close * smcMinSweepPct / 100.0
+bullSweepW = not na(lastPL) and low < lastPL and close > lastPL and (lastPL - low) >= minSweep
+bearSweepW = not na(lastPH) and high > lastPH and close < lastPH and (high - lastPH) >= minSweep
+bullSweepC = not na(lastPL) and close < lastPL and (lastPL - close) >= minSweep
+bearSweepC = not na(lastPH) and close > lastPH and (close - lastPH) >= minSweep
+
+bullSweep = smcSweepMode == "Wick Only" ? bullSweepW : smcSweepMode == "Candle Close" ? bullSweepC : bullSweepW or bullSweepC
+bearSweep = smcSweepMode == "Wick Only" ? bearSweepW : smcSweepMode == "Candle Close" ? bearSweepC : bearSweepW or bearSweepC
+
+var bool bullActive = false
+var bool bearActive = false
+var int bullSweepBar = na
+var int bearSweepBar = na
+if enSMC and f_signalBar()
+    if bullSweep
+        bullActive := true
+        bearActive := false
+        bullSweepBar := bar_index
+    if bearSweep
+        bearActive := true
+        bullActive := false
+        bearSweepBar := bar_index
+if bullActive and bar_index - bullSweepBar > smcBosWindow
+    bullActive := false
+if bearActive and bar_index - bearSweepBar > smcBosWindow
+    bearActive := false
+
+var float smcBullLevel = na
+var float smcBearLevel = na
+if bullSweep
+    smcBullLevel := lastPH
+if bearSweep
+    smcBearLevel := lastPL
+
+bullBOS = enSMC and bullActive and not na(smcBullLevel) and close > smcBullLevel and close[1] <= smcBullLevel
+bearBOS = enSMC and bearActive and not na(smcBearLevel) and close < smcBearLevel and close[1] >= smcBearLevel
+
+if bullBOS
+    bullActive := false
+if bearBOS
+    bearActive := false
+
+bullFVG = enSMC and low > high[2]
+bearFVG = enSMC and high < low[2]
+
+if enSMC and bullSweep and f_signalBar()
+    label.new(bar_index, low, "SSL SWEEP", style=label.style_label_up, color=color.new(color.green, 10), textcolor=color.white, size=f_size())
+if enSMC and bearSweep and f_signalBar()
+    label.new(bar_index, high, "BSL SWEEP", style=label.style_label_down, color=color.new(color.red, 10), textcolor=color.white, size=f_size())
+if enSMC and bullBOS and f_signalBar()
+    label.new(bar_index, low, "BOS ↑", style=label.style_label_up, color=color.new(color.aqua, 10), textcolor=color.white, size=f_size())
+if enSMC and bearBOS and f_signalBar()
+    label.new(bar_index, high, "BOS ↓", style=label.style_label_down, color=color.new(color.orange, 10), textcolor=color.white, size=f_size())
+
+if enSMC and showFVG and bullFVG
+    box.new(bar_index - 2, low, bar_index, high[2], bgcolor=color.new(color.green, 88), border_color=color.new(color.green, 55))
+if enSMC and showFVG and bearFVG
+    box.new(bar_index - 2, low[2], bar_index, high, bgcolor=color.new(color.red, 88), border_color=color.new(color.red, 55))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 03 — ANCHORED VOLUME PROFILE
+// Source status: OHLCV proxy. True price-by-volume profile needs lower-level
+// volume distribution; this visual uses session VWAP and dispersion bands.
+// ─────────────────────────────────────────────────────────────────────────────
+g3 = "03 — Anchored Volume Profile"
+enAVP = input.bool(false, "Enable", group=g3)
+avpAnchor = input.string("Session", "Anchor", options=["Session","Week","Manual bars"], group=g3)
+avpBars = input.int(100, "Manual anchor bars", minval=5, maxval=2000, group=g3)
+avpBand = input.float(1.0, "Dispersion ×", minval=0.1, step=0.1, group=g3)
+
+newDay = ta.change(time("D")) != 0
+newWeek = ta.change(time("W")) != 0
+resetAVP = avpAnchor == "Session" ? newDay : avpAnchor == "Week" ? newWeek : false
+srcAVP = hlc3
+var float avpPV = 0.0
+var float avpVol = 0.0
+if resetAVP
+    avpPV := 0.0
+    avpVol := 0.0
+if enAVP and avpAnchor != "Manual bars"
+    avpPV += srcAVP * nz(volume)
+    avpVol += nz(volume)
+avpVWAP = enAVP and avpVol > 0 ? avpPV / avpVol : na
+avpDev = ta.stdev(srcAVP, avpBars)
+plot(enAVP ? avpVWAP : na, "AVP Proxy POC/VWAP", color=color.yellow, linewidth=2)
+plot(enAVP ? avpVWAP + avpDev * avpBand : na, "AVP Upper", color=color.new(color.yellow, 50))
+plot(enAVP ? avpVWAP - avpDev * avpBand : na, "AVP Lower", color=color.new(color.yellow, 50))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 04 — ORDER BLOCK STRENGTH
+// Source status: Python-derived concept; visualizes last opposite candle before
+// a structure break and scores it by displacement/volume.
+// ─────────────────────────────────────────────────────────────────────────────
+g4 = "04 — Order Block Strength"
+enOB = input.bool(true, "Enable", group=g4)
+obLookback = input.int(10, "Search lookback", minval=1, maxval=50, group=g4)
+obMinBodyATR = input.float(0.5, "Break displacement body × ATR", minval=0.1, step=0.1, group=g4)
+obExtend = input.int(30, "Extend bars", minval=1, maxval=200, group=g4)
+
+obATR = ta.atr(14)
+bullBreakImpulse = close > open and math.abs(close - open) >= obATR * obMinBodyATR and close > ta.highest(high[1], smcSwing)
+bearBreakImpulse = close < open and math.abs(close - open) >= obATR * obMinBodyATR and close < ta.lowest(low[1], smcSwing)
+
+var box bullOB = na
+var box bearOB = na
+if enOB and bullBreakImpulse
+    int idx = na
+    for i = 1 to obLookback
+        if close[i] < open[i]
+            idx := i
+            break
+    if not na(idx)
+        bullOB := box.new(bar_index - idx, high[idx], bar_index + obExtend, low[idx], bgcolor=color.new(color.green, 88), border_color=color.new(color.green, 35))
+if enOB and bearBreakImpulse
+    int idx2 = na
+    for i = 1 to obLookback
+        if close[i] > open[i]
+            idx2 := i
+            break
+    if not na(idx2)
+        bearOB := box.new(bar_index - idx2, high[idx2], bar_index + obExtend, low[idx2], bgcolor=color.new(color.red, 88), border_color=color.new(color.red, 35))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 05 — SWEEP & ENGULF
+// ─────────────────────────────────────────────────────────────────────────────
+g5 = "05 — Sweep & Engulf"
+enSE = input.bool(false, "Enable", group=g5)
+seSwing = input.int(3, "Sweep pivot", minval=1, maxval=20, group=g5)
+seNeedEngulf = input.bool(true, "Require engulf candle", group=g5)
+
+sePH = ta.pivothigh(high, seSwing, seSwing)
+sePL = ta.pivotlow(low, seSwing, seSwing)
+var float seHigh = na
+var float seLow = na
+if not na(sePH)
+    seHigh := sePH
+if not na(sePL)
+    seLow := sePL
+
+bullEngulf = close > open and close >= open[1] and open <= close[1]
+bearEngulf = close < open and close <= open[1] and open >= close[1]
+seLong = enSE and not na(seLow) and low < seLow and close > seLow and (not seNeedEngulf or bullEngulf)
+seShort = enSE and not na(seHigh) and high > seHigh and close < seHigh and (not seNeedEngulf or bearEngulf)
+
+plotshape(seLong and f_signalBar(), "Sweep Engulf Long", shape.triangleup, location.belowbar, color=color.lime, text="SE L", textcolor=color.white, size=size.tiny)
+plotshape(seShort and f_signalBar(), "Sweep Engulf Short", shape.triangledown, location.abovebar, color=color.red, text="SE S", textcolor=color.white, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 06 — SESSION RANGE SWEEP + CHoCH
+// ─────────────────────────────────────────────────────────────────────────────
+g6 = "06 — Session Range Sweep + CHoCH"
+enSRS = input.bool(false, "Enable", group=g6)
+srsStart = input.session("0915-1000", "Opening/session range", group=g6)
+srsWindow = input.int(20, "CHoCH swing", minval=2, maxval=20, group=g6)
+
+inSRS = not na(time(timeframe.period, srsStart))
+var float srsHigh = na
+var float srsLow = na
+if newDay
+    srsHigh := na
+    srsLow := na
+if inSRS
+    srsHigh := na(srsHigh) ? high : math.max(srsHigh, high)
+    srsLow := na(srsLow) ? low : math.min(srsLow, low)
+
+srsUp = enSRS and not inSRS and not na(srsHigh) and high > srsHigh and close < srsHigh
+srsDn = enSRS and not inSRS and not na(srsLow) and low < srsLow and close > srsLow
+plot(enSRS ? srsHigh : na, "Session High", color=color.new(color.green, 30), style=plot.style_linebr)
+plot(enSRS ? srsLow : na, "Session Low", color=color.new(color.red, 30), style=plot.style_linebr)
+plotshape(srsDn and f_signalBar(), "Bull session sweep", shape.labelup, location.belowbar, color=color.green, text="SWEEP↑", textcolor=color.white, size=size.tiny)
+plotshape(srsUp and f_signalBar(), "Bear session sweep", shape.labeldown, location.abovebar, color=color.red, text="SWEEP↓", textcolor=color.white, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 07 — AMD / POWER OF THREE
+// Accumulation → manipulation → distribution visual proxy.
+// ─────────────────────────────────────────────────────────────────────────────
+g7 = "07 — AMD / Power of Three"
+enAMD = input.bool(false, "Enable", group=g7)
+amdRangeBars = input.int(30, "Accumulation range", minval=5, maxval=200, group=g7)
+amdATR = input.float(0.5, "Manipulation threshold × ATR", minval=0.1, step=0.1, group=g7)
+amdHi = ta.highest(high[1], amdRangeBars)
+amdLo = ta.lowest(low[1], amdRangeBars)
+amdManipUp = enAMD and high > amdHi and close < amdHi and (high - amdHi) > ta.atr(14) * amdATR
+amdManipDn = enAMD and low < amdLo and close > amdLo and (amdLo - low) > ta.atr(14) * amdATR
+plotshape(amdManipUp and f_signalBar(), "AMD manipulation up", shape.labeldown, location.abovebar, color=color.orange, text="AMD↑", textcolor=color.white, size=size.tiny)
+plotshape(amdManipDn and f_signalBar(), "AMD manipulation down", shape.labelup, location.belowbar, color=color.aqua, text="AMD↓", textcolor=color.black, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 08 — OSCILLATOR MATRIX
+// Visual matrix of RSI, Stoch, MACD histogram and momentum state.
+// ─────────────────────────────────────────────────────────────────────────────
+g8 = "08 — Oscillator Matrix"
+enOSC = input.bool(false, "Enable", group=g8)
+oscRSILen = input.int(14, "RSI", minval=2, group=g8)
+oscStochLen = input.int(14, "Stoch", minval=2, group=g8)
+oscFast = input.int(12, "MACD fast", minval=1, group=g8)
+oscSlow = input.int(26, "MACD slow", minval=2, group=g8)
+oscSig = input.int(9, "MACD signal", minval=1, group=g8)
+oscRSI = ta.rsi(close, oscRSILen)
+oscStoch = ta.stoch(close, high, low, oscStochLen)
+[oscMacd, oscSignal, oscHist] = ta.macd(close, oscFast, oscSlow, oscSig)
+oscLong = enOSC and oscRSI > 50 and oscStoch > 50 and oscHist > 0
+oscShort = enOSC and oscRSI < 50 and oscStoch < 50 and oscHist < 0
+plot(enOSC ? oscRSI : na, "Osc RSI", color=color.new(color.blue, 0), display=display.pane)
+plotshape(oscLong and f_signalBar(), "Osc matrix long", shape.circle, location.belowbar, color=color.lime, text="OM+", textcolor=color.white, size=size.tiny)
+plotshape(oscShort and f_signalBar(), "Osc matrix short", shape.circle, location.abovebar, color=color.red, text="OM-", textcolor=color.white, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 09/10 — CVD ABSORPTION + LIQUIDITY DELTA PROFILER
+// OHLCV estimated delta only. True bid/ask delta requires trade-side data.
+// ─────────────────────────────────────────────────────────────────────────────
+g9 = "09 — CVD Absorption"
+enCVD = input.bool(false, "Enable", group=g9)
+cvdLen = input.int(20, "CVD baseline", minval=2, group=g9)
+deltaProxy = volume * (close > open ? 1.0 : close < open ? -1.0 : 0.0)
+cvd = ta.cum(nz(deltaProxy))
+cvdMA = ta.sma(cvd, cvdLen)
+bullAbsorb = enCVD and low < low[1] and close > close[1] and cvd > cvdMA
+bearAbsorb = enCVD and high > high[1] and close < close[1] and cvd < cvdMA
+plotshape(bullAbsorb and f_signalBar(), "CVD absorption long", shape.labelup, location.belowbar, color=color.green, text="CVD A", textcolor=color.white, size=size.tiny)
+plotshape(bearAbsorb and f_signalBar(), "CVD absorption short", shape.labeldown, location.abovebar, color=color.red, text="CVD A", textcolor=color.white, size=size.tiny)
+
+g10 = "10 — Liquidity Delta Profiler"
+enLDP = input.bool(false, "Enable", group=g10)
+ldpLen = input.int(20, "Delta profile length", minval=2, group=g10)
+ldpDeltaMA = ta.sma(deltaProxy, ldpLen)
+ldpLong = enLDP and deltaProxy > 0 and deltaProxy > ldpDeltaMA
+ldpShort = enLDP and deltaProxy < 0 and deltaProxy < ldpDeltaMA
+plotshape(ldpLong and f_signalBar(), "Liquidity delta long", shape.triangleup, location.belowbar, color=color.aqua, text="Δ+", textcolor=color.black, size=size.tiny)
+plotshape(ldpShort and f_signalBar(), "Liquidity delta short", shape.triangledown, location.abovebar, color=color.fuchsia, text="Δ-", textcolor=color.white, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11 — SESSION VOLUME MA
+// ─────────────────────────────────────────────────────────────────────────────
+g11 = "11 — Session Volume MA"
+enSVM = input.bool(false, "Enable", group=g11)
+svmLen = input.int(20, "Volume MA", minval=1, group=g11)
+svmMult = input.float(1.2, "High-volume multiple", minval=0.1, step=0.1, group=g11)
+svm = ta.sma(volume, svmLen)
+plot(enSVM ? svm : na, "Volume MA", color=color.new(color.white, 20), display=display.pane)
+plotshape(enSVM and volume > svm * svmMult and f_signalBar(), "High session volume", shape.circle, location.abovebar, color=color.yellow, text="VOL", textcolor=color.black, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12 — PEAK ACTIVITY RANGE
+// Highest-volume candle range used as a structural activity zone.
+// ─────────────────────────────────────────────────────────────────────────────
+g12 = "12 — Peak Activity Range"
+enPAR = input.bool(false, "Enable", group=g12)
+parLookback = input.int(50, "Lookback", minval=5, maxval=500, group=g12)
+parExtend = input.int(20, "Extend bars", minval=1, maxval=100, group=g12)
+
+parVol = ta.highest(volume, parLookback)
+parOffset = ta.highestbars(volume, parLookback)
+parHigh = high[parOffset]
+parLow = low[parOffset]
+plot(enPAR ? parHigh : na, "Peak Activity High", color=color.new(color.orange, 20), style=plot.style_linebr)
+plot(enPAR ? parLow : na, "Peak Activity Low", color=color.new(color.orange, 20), style=plot.style_linebr)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 13 — CLUSTER VOLUME PROFILE
+// OHLCV proxy: groups volume into a rolling price-location proxy.
+// ─────────────────────────────────────────────────────────────────────────────
+g13 = "13 — Cluster Volume Profile"
+enCVP = input.bool(false, "Enable", group=g13)
+cvpLen = input.int(50, "Cluster window", minval=5, maxval=500, group=g13)
+cvpHigh = ta.highest(high, cvpLen)
+cvpLow = ta.lowest(low, cvpLen)
+cvpMid = (cvpHigh + cvpLow) / 2.0
+cvpVW = ta.vwma(hlc3, cvpLen)
+plot(enCVP ? cvpVW : na, "Cluster Volume POC proxy", color=color.new(color.aqua, 0), linewidth=2)
+plot(enCVP ? cvpMid : na, "Cluster midpoint", color=color.new(color.gray, 50))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14 — GAMMA EXPOSURE
+// Manual research proxy. True GEX needs option-chain OI/volume/Greeks and
+// dealer-side assumptions; Pine chart OHLCV alone cannot recreate that.
+// ─────────────────────────────────────────────────────────────────────────────
+g14 = "14 — Gamma Exposure"
+enGEX = input.bool(false, "Enable", group=g14)
+gexLevel = input.float(0.0, "Manual gamma wall level", minval=0.0, group=g14)
+gexBand = input.float(25.0, "Manual gamma band", minval=0.0, group=g14)
+gexRegime = enGEX and gexLevel > 0 ? close > gexLevel ? "ABOVE WALL" : "BELOW WALL" : "NO INPUT"
+plot(enGEX and gexLevel > 0 ? gexLevel : na, "Gamma wall (manual)", color=color.new(color.purple, 0), linewidth=2)
+plot(enGEX and gexLevel > 0 ? gexLevel + gexBand : na, "Gamma upper", color=color.new(color.purple, 70))
+plot(enGEX and gexLevel > 0 ? gexLevel - gexBand : na, "Gamma lower", color=color.new(color.purple, 70))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 15 — VOLUME SURPRISE
+// ─────────────────────────────────────────────────────────────────────────────
+g15 = "15 — Volume Surprise"
+enVS = input.bool(false, "Enable", group=g15)
+vsLen = input.int(20, "Baseline length", minval=2, group=g15)
+vsZ = input.float(2.0, "Surprise Z threshold", minval=0.1, step=0.1, group=g15)
+vsMean = ta.sma(volume, vsLen)
+vsStd = ta.stdev(volume, vsLen)
+vsScore = vsStd > 0 ? (volume - vsMean) / vsStd : 0.0
+vsEvent = enVS and vsScore >= vsZ
+plotshape(vsEvent and f_signalBar(), "Volume surprise", shape.labelup, location.abovebar, color=color.yellow, text="SURPRISE", textcolor=color.black, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 16 — MACHINE LEARNING MA
+// Source status: experimental. This is an adaptive-MA visual proxy, not a
+// claim of parity with a trained ML model.
+// ─────────────────────────────────────────────────────────────────────────────
+g16 = "16 — Machine Learning MA"
+enML = input.bool(false, "Enable", group=g16)
+mlFast = input.int(10, "Fast", minval=2, group=g16)
+mlSlow = input.int(50, "Slow", minval=3, group=g16)
+mlERLen = input.int(10, "Efficiency ratio", minval=2, group=g16)
+mlChange = math.abs(close - close[mlERLen])
+mlVolatility = ta.sum(math.abs(close - close[1]), mlERLen)
+mlER = mlVolatility > 0 ? mlChange / mlVolatility : 0.0
+mlSC = math.pow(mlER * (2.0 / (mlFast + 1) - 2.0 / (mlSlow + 1)) + 2.0 / (mlSlow + 1), 2)
+var float mlMA = na
+mlMA := na(mlMA[1]) ? close : mlMA[1] + mlSC * (close - mlMA[1])
+plot(enML ? mlMA : na, "Adaptive ML-MA proxy", color=color.new(color.fuchsia, 0), linewidth=2)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 17 — LOG REGRESSION CHANNEL
+// ─────────────────────────────────────────────────────────────────────────────
+g17 = "17 — Log Regression Channel"
+enLRC = input.bool(false, "Enable", group=g17)
+lrcLen = input.int(100, "Length", minval=10, maxval=1000, group=g17)
+lrcMult = input.float(2.0, "Deviation ×", minval=0.1, step=0.1, group=g17)
+logSrc = math.log(math.max(close, syminfo.mintick))
+logBasis = ta.linreg(logSrc, lrcLen, 0)
+logDev = ta.stdev(logSrc, lrcLen) * lrcMult
+lrcMid = math.exp(logBasis)
+lrcUp = math.exp(logBasis + logDev)
+lrcDn = math.exp(logBasis - logDev)
+plot(enLRC ? lrcMid : na, "Log regression mid", color=color.new(color.blue, 0))
+plot(enLRC ? lrcUp : na, "Log regression upper", color=color.new(color.blue, 60))
+plot(enLRC ? lrcDn : na, "Log regression lower", color=color.new(color.blue, 60))
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 18 — RSI DIVERGENCE OPTIMIZER
+// Source status: research / overfit-risk. Shows configurable pivot divergence.
+// ─────────────────────────────────────────────────────────────────────────────
+g18 = "18 — RSI Divergence Optimizer"
+enDiv = input.bool(false, "Enable", group=g18)
+divRSILen = input.int(14, "RSI length", minval=2, group=g18)
+divPivot = input.int(5, "Pivot length", minval=2, maxval=20, group=g18)
+divRSI = ta.rsi(close, divRSILen)
+divPL = ta.pivotlow(low, divPivot, divPivot)
+divPH = ta.pivothigh(high, divPivot, divPivot)
+var float prevPriceLow = na
+var float prevRSILow = na
+var float prevPriceHigh = na
+var float prevRSIHigh = na
+
+bullDiv = false
+bearDiv = false
+if not na(divPL)
+    curPriceLow = low[divPivot]
+    curRSILow = divRSI[divPivot]
+    bullDiv := enDiv and not na(prevPriceLow) and curPriceLow < prevPriceLow and curRSILow > prevRSILow
+    prevPriceLow := curPriceLow
+    prevRSILow := curRSILow
+if not na(divPH)
+    curPriceHigh = high[divPivot]
+    curRSIHigh = divRSI[divPivot]
+    bearDiv := enDiv and not na(prevPriceHigh) and curPriceHigh > prevPriceHigh and curRSIHigh < prevRSIHigh
+    prevPriceHigh := curPriceHigh
+    prevRSIHigh := curRSIHigh
+
+plotshape(bullDiv and f_signalBar(), "Bull RSI divergence", shape.labelup, location.belowbar, color=color.green, text="DIV+", textcolor=color.white, size=size.tiny)
+plotshape(bearDiv and f_signalBar(), "Bear RSI divergence", shape.labeldown, location.abovebar, color=color.red, text="DIV-", textcolor=color.white, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 19 — UNIVERSAL SIGNAL BACKTESTER / EVENT COUNTER
+// Research utility only. Does NOT model options, Greeks, lots, broker costs,
+// slippage, or execution.
+// ─────────────────────────────────────────────────────────────────────────────
+g19 = "19 — Universal Signal Backtester"
+enUSB = input.bool(false, "Enable", group=g19)
+usbLong = enUSB and (bullBOS or seLong or srsDn or oscLong or bullAbsorb or ldpLong or bullDiv)
+usbShort = enUSB and (bearBOS or seShort or srsUp or oscShort or bearAbsorb or ldpShort or bearDiv)
+var int usbLongCount = 0
+var int usbShortCount = 0
+if usbLong and f_signalBar()
+    usbLongCount += 1
+if usbShort and f_signalBar()
+    usbShortCount += 1
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+var table dash = table.new(position.top_right, 3, 22, border_width=1)
+if barstate.islast and showDashboard
+    table.clear(dash, 0, 0, 2, 21)
+    table.cell(dash, 0, 0, "KQ YT LAB", text_color=color.white)
+    table.cell(dash, 1, 0, "ON", text_color=color.white)
+    table.cell(dash, 2, 0, "STATUS", text_color=color.white)
+
+    table.cell(dash, 0, 1, "Structural Leg")
+    table.cell(dash, 1, 1, enLeg ? "ON" : "OFF")
+    table.cell(dash, 2, 1, "TSL candidate")
+    table.cell(dash, 0, 2, "SMC")
+    table.cell(dash, 1, 2, enSMC ? "ON" : "OFF")
+    table.cell(dash, 2, 2, "Sweep/BOS/FVG")
+    table.cell(dash, 0, 3, "AVP")
+    table.cell(dash, 1, 3, enAVP ? "ON" : "OFF")
+    table.cell(dash, 2, 3, "OHLCV proxy")
+    table.cell(dash, 0, 4, "Order Block")
+    table.cell(dash, 1, 4, enOB ? "ON" : "OFF")
+    table.cell(dash, 2, 4, "Structure")
+    table.cell(dash, 0, 5, "Sweep+Engulf")
+    table.cell(dash, 1, 5, enSE ? "ON" : "OFF")
+    table.cell(dash, 2, 5, "Strategy")
+    table.cell(dash, 0, 6, "Session Sweep")
+    table.cell(dash, 1, 6, enSRS ? "ON" : "OFF")
+    table.cell(dash, 2, 6, "CHoCH")
+    table.cell(dash, 0, 7, "AMD")
+    table.cell(dash, 1, 7, enAMD ? "ON" : "OFF")
+    table.cell(dash, 2, 7, "PO3 proxy")
+    table.cell(dash, 0, 8, "Oscillator")
+    table.cell(dash, 1, 8, enOSC ? "ON" : "OFF")
+    table.cell(dash, 2, 8, "Matrix")
+    table.cell(dash, 0, 9, "CVD")
+    table.cell(dash, 1, 9, enCVD ? "ON" : "OFF")
+    table.cell(dash, 2, 9, "Estimated")
+    table.cell(dash, 0, 10, "Liquidity Delta")
+    table.cell(dash, 1, 10, enLDP ? "ON" : "OFF")
+    table.cell(dash, 2, 10, "Estimated")
+    table.cell(dash, 0, 11, "Session Vol MA")
+    table.cell(dash, 1, 11, enSVM ? "ON" : "OFF")
+    table.cell(dash, 2, 11, "Volume")
+    table.cell(dash, 0, 12, "Peak Activity")
+    table.cell(dash, 1, 12, enPAR ? "ON" : "OFF")
+    table.cell(dash, 2, 12, "Range")
+    table.cell(dash, 0, 13, "Cluster VP")
+    table.cell(dash, 1, 13, enCVP ? "ON" : "OFF")
+    table.cell(dash, 2, 13, "OHLCV proxy")
+    table.cell(dash, 0, 14, "GEX")
+    table.cell(dash, 1, 14, enGEX ? "ON" : "OFF")
+    table.cell(dash, 2, 14, "Manual proxy")
+    table.cell(dash, 0, 15, "Volume Surprise")
+    table.cell(dash, 1, 15, enVS ? "ON" : "OFF")
+    table.cell(dash, 2, 15, "Z-score")
+    table.cell(dash, 0, 16, "ML MA")
+    table.cell(dash, 1, 16, enML ? "ON" : "OFF")
+    table.cell(dash, 2, 16, "Adaptive proxy")
+    table.cell(dash, 0, 17, "Log Regression")
+    table.cell(dash, 1, 17, enLRC ? "ON" : "OFF")
+    table.cell(dash, 2, 17, "Channel")
+    table.cell(dash, 0, 18, "RSI Divergence")
+    table.cell(dash, 1, 18, enDiv ? "ON" : "OFF")
+    table.cell(dash, 2, 18, "Research")
+    table.cell(dash, 0, 19, "USB")
+    table.cell(dash, 1, 19, enUSB ? "ON" : "OFF")
+    table.cell(dash, 2, 19, str.tostring(usbLongCount) + "/" + str.tostring(usbShortCount))
+    table.cell(dash, 0, 20, "GEX regime")
+    table.cell(dash, 1, 20, gexRegime)
+    table.cell(dash, 2, 20, "Manual only")
+    table.cell(dash, 0, 21, "Rule")
+    table.cell(dash, 1, 21, "Research")
+    table.cell(dash, 2, 21, "Not production")

@@ -1,5 +1,5 @@
 //@version=6
-indicator("KunalQuant — Sweep & Engulf (Video Recreation)", shorttitle="KQ Sweep & Engulf", overlay=true, max_boxes_count=20, max_labels_count=200)
+indicator("KunalQuant — Sweep & Engulf (Video Recreation) v2", shorttitle="KQ Sweep & Engulf v2", overlay=true, max_boxes_count=500, max_labels_count=500)
 
 // ============================================================================
 // KUNALQUANT — SWEEP & ENGULF
@@ -28,6 +28,9 @@ indicator("KunalQuant — Sweep & Engulf (Video Recreation)", shorttitle="KQ Swe
 // SIGNAL FILTERS
 // ─────────────────────────────────────────────────────────────────────────────
 grpSignal = "Signal Filters"
+
+plotEverySignal = input.bool(true, "Plot Every Valid Signal", group=grpSignal, tooltip="ON = every qualifying sweep is plotted. OFF = original one-active-trade behavior.")
+confirmOnClose = input.bool(true, "Confirm Signal On Bar Close", group=grpSignal, tooltip="Recommended for 1m/3m/5m research.")
 
 previousDirection = input.string(
      "Any",
@@ -134,12 +137,14 @@ atrReady = not na(atr)
 rawBullSignal =
      bullishSweepEngulf and
      trendAllowsBull and
-     atrReady
+     atrReady and
+     (not confirmOnClose or barstate.isconfirmed)
 
 rawBearSignal =
      bearishSweepEngulf and
      trendAllowsBear and
-     atrReady
+     atrReady and
+     (not confirmOnClose or barstate.isconfirmed)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TRADE STATE
@@ -161,136 +166,74 @@ var line entryLine = na
 // This prevents subsequent signals from appearing until TP/SL is reached.
 longSignal =
      rawBullSignal and
-     not tradeActive
+     (plotEverySignal or not tradeActive)
 
 shortSignal =
      rawBearSignal and
-     not tradeActive
+     (plotEverySignal or not tradeActive)
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OPEN LONG
+// SIGNAL VISUALIZATION
+//
+// Default v2 behavior: every valid signal is plotted independently.
+// The original one-active-trade behavior is retained when Plot Every Valid
+// Signal is OFF.
+//
+// In all-signal mode the TP/SL boxes use the initial projection window.
+// This avoids maintaining hundreds of simultaneous trade states on every bar,
+// keeping the indicator responsive on 1m/3m/5m.
 // ─────────────────────────────────────────────────────────────────────────────
+
 if longSignal
-    tradeActive := true
-    tradeDirection := 1
-    entryPrice := close
-    entryBar := bar_index
-    exitBar := na
-
-    stopPrice :=
-         stopLossMethod == "ATR" ?
-         entryPrice - atr * atrMultiplier :
-         low
-
-    riskDistance = entryPrice - stopPrice
-    targetPrice := entryPrice + riskDistance * riskReward
+    entry = close
+    stop = stopLossMethod == "ATR" ? entry - atr * atrMultiplier : low
+    riskDistance = entry - stop
+    target = entry + riskDistance * riskReward
 
     if showTradeBoxes
-        tpBox := box.new(
-             left=bar_index,
-             top=targetPrice,
-             right=bar_index + boxProjectionBars,
-             bottom=entryPrice,
-             bgcolor=color.new(color.green, 84),
-             border_color=color.new(color.green, 35)
-             )
-
-        slBox := box.new(
-             left=bar_index,
-             top=entryPrice,
-             right=bar_index + boxProjectionBars,
-             bottom=stopPrice,
-             bgcolor=color.new(color.red, 84),
-             border_color=color.new(color.red, 35)
-             )
+        box.new(bar_index, target, bar_index + boxProjectionBars, entry, bgcolor=color.new(color.green, 84), border_color=color.new(color.green, 35))
+        box.new(bar_index, entry, bar_index + boxProjectionBars, stop, bgcolor=color.new(color.red, 84), border_color=color.new(color.red, 35))
 
     if showEntryLine
-        entryLine := line.new(
-             x1=bar_index,
-             y1=entryPrice,
-             x2=bar_index + boxProjectionBars,
-             y2=entryPrice,
-             color=color.new(color.white, 25),
-             style=line.style_dotted
-             )
+        line.new(bar_index, entry, bar_index + boxProjectionBars, entry, color=color.new(color.white, 25), style=line.style_dotted)
 
     if showEntryLabels
-        label.new(
-             bar_index,
-             low,
-             "SWEEP ↑",
-             style=label.style_label_up,
-             color=color.green,
-             textcolor=color.white,
-             size=size.small
-             )
+        label.new(bar_index, low, "SWEEP ↑", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.small)
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OPEN SHORT
-// ─────────────────────────────────────────────────────────────────────────────
+    if not plotEverySignal
+        tradeActive := true
+        tradeDirection := 1
+        entryPrice := entry
+        entryBar := bar_index
+        stopPrice := stop
+        targetPrice := target
+
 if shortSignal
-    tradeActive := true
-    tradeDirection := -1
-    entryPrice := close
-    entryBar := bar_index
-    exitBar := na
-
-    stopPrice :=
-         stopLossMethod == "ATR" ?
-         entryPrice + atr * atrMultiplier :
-         high
-
-    riskDistance = stopPrice - entryPrice
-    targetPrice := entryPrice - riskDistance * riskReward
+    entry = close
+    stop = stopLossMethod == "ATR" ? entry + atr * atrMultiplier : high
+    riskDistance = stop - entry
+    target = entry - riskDistance * riskReward
 
     if showTradeBoxes
-        tpBox := box.new(
-             left=bar_index,
-             top=entryPrice,
-             right=bar_index + boxProjectionBars,
-             bottom=targetPrice,
-             bgcolor=color.new(color.green, 84),
-             border_color=color.new(color.green, 35)
-             )
-
-        slBox := box.new(
-             left=bar_index,
-             top=stopPrice,
-             right=bar_index + boxProjectionBars,
-             bottom=entryPrice,
-             bgcolor=color.new(color.red, 84),
-             border_color=color.new(color.red, 35)
-             )
+        box.new(bar_index, entry, bar_index + boxProjectionBars, target, bgcolor=color.new(color.green, 84), border_color=color.new(color.green, 35))
+        box.new(bar_index, stop, bar_index + boxProjectionBars, entry, bgcolor=color.new(color.red, 84), border_color=color.new(color.red, 35))
 
     if showEntryLine
-        entryLine := line.new(
-             x1=bar_index,
-             y1=entryPrice,
-             x2=bar_index + boxProjectionBars,
-             y2=entryPrice,
-             color=color.new(color.white, 25),
-             style=line.style_dotted
-             )
+        line.new(bar_index, entry, bar_index + boxProjectionBars, entry, color=color.new(color.white, 25), style=line.style_dotted)
 
     if showEntryLabels
-        label.new(
-             bar_index,
-             high,
-             "SWEEP ↓",
-             style=label.style_label_down,
-             color=color.red,
-             textcolor=color.white,
-             size=size.small
-             )
+        label.new(bar_index, high, "SWEEP ↓", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.small)
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ACTIVE TRADE MANAGEMENT
-// Video behavior: wick touching TP/SL is sufficient to close the active trade.
-// When both levels are touched on the same candle, SL is given priority as a
-// conservative deterministic choice; the video does not specify same-bar
-// precedence explicitly.
-// ─────────────────────────────────────────────────────────────────────────────
-if tradeActive and bar_index > entryBar
+    if not plotEverySignal
+        tradeActive := true
+        tradeDirection := -1
+        entryPrice := entry
+        entryBar := bar_index
+        stopPrice := stop
+        targetPrice := target
+
+// Original one-trade management, only used when Plot Every Valid Signal = OFF.
+if not plotEverySignal and tradeActive and bar_index > entryBar
     bool hitStop = false
     bool hitTarget = false
 
@@ -302,65 +245,24 @@ if tradeActive and bar_index > entryBar
         hitTarget := low <= targetPrice
 
     if hitStop or hitTarget
-        // Conservative same-bar resolution.
-        bool exitAtStop = hitStop
-        bool exitAtTarget = not hitStop and hitTarget
-
-        exitBar := bar_index
+        exitAtStop = hitStop
         tradeActive := false
-
-        if showTradeBoxes
-            if not na(tpBox)
-                box.set_right(tpBox, bar_index)
-            if not na(slBox)
-                box.set_right(slBox, bar_index)
-
-        if not na(entryLine)
-            line.set_x2(entryLine, bar_index)
 
         if showEntryLabels
             if exitAtStop
-                label.new(
-                     bar_index,
-                     tradeDirection == 1 ? low : high,
-                     "SL",
-                     style=tradeDirection == 1 ? label.style_label_down : label.style_label_up,
-                     color=color.red,
-                     textcolor=color.white,
-                     size=size.tiny
-                     )
-            else if exitAtTarget
-                label.new(
-                     bar_index,
-                     tradeDirection == 1 ? high : low,
-                     "TP",
-                     style=tradeDirection == 1 ? label.style_label_down : label.style_label_up,
-                     color=color.green,
-                     textcolor=color.white,
-                     size=size.tiny
-                     )
+                label.new(bar_index, tradeDirection == 1 ? low : high, "SL", style=tradeDirection == 1 ? label.style_label_down : label.style_label_up, color=color.red, textcolor=color.white, size=size.tiny)
+            else
+                label.new(bar_index, tradeDirection == 1 ? high : low, "TP", style=tradeDirection == 1 ? label.style_label_down : label.style_label_up, color=color.green, textcolor=color.white, size=size.tiny)
 
-        tpBox := na
-        slBox := na
-        entryLine := na
         tradeDirection := 0
         entryPrice := na
         stopPrice := na
         targetPrice := na
         entryBar := na
 
-// ─────────────────────────────────────────────────────────────────────────────
-// EXTEND ACTIVE BOXES UNTIL EXIT
-// ─────────────────────────────────────────────────────────────────────────────
-if tradeActive
-    if showTradeBoxes
-        if not na(tpBox)
-            box.set_right(tpBox, math.max(bar_index, entryBar + boxProjectionBars))
-        if not na(slBox)
-            box.set_right(slBox, math.max(bar_index, entryBar + boxProjectionBars))
-
-    if not na(entryLine)
-        line.set_x2(entryLine, math.max(bar_index, entryBar + boxProjectionBars))
+// Always-visible signal markers.
+plotshape(longSignal, title="Bullish Sweep & Engulf", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny, text="BUY")
+plotshape(shortSignal, title="Bearish Sweep & Engulf", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny, text="SELL")
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ALERTS

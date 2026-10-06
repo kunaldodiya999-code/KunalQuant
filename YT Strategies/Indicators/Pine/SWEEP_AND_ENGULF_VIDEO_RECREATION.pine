@@ -1,5 +1,5 @@
 //@version=6
-indicator("KunalQuant — Sweep & Engulf (Video Recreation) v2", shorttitle="KQ Sweep & Engulf v2", overlay=true, max_boxes_count=500, max_labels_count=500)
+indicator("KunalQuant — Sweep & Engulf (Video Recreation) v2", shorttitle="KQ Sweep & Engulf v2", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
 
 // ============================================================================
 // KUNALQUANT — SWEEP & ENGULF

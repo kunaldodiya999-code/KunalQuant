@@ -45,8 +45,20 @@ def summarize_snapshot(
     paired = set()
     paired_oi = set()
 
+    # Without a synchronized underlying price, "around spot" cannot be
+    # evaluated; do not mislabel the entire chain as being inside the band.
+    if spot is None:
+        return {
+            "spot": None,
+            "ce_strikes_in_band": 0,
+            "pe_strikes_in_band": 0,
+            "paired_strikes_in_band": 0,
+            "paired_oi_strikes_in_band": 0,
+            "candidate_snapshot": "NO",
+        }
+
     for strike, sides in contracts.items():
-        if spot is not None and abs(float(strike) - spot) > max_distance:
+        if abs(float(strike) - spot) > max_distance:
             continue
 
         call = sides.get("CE")

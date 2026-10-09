@@ -129,24 +129,13 @@ def main() -> None:
     else:
         database_path = args.database
 
-    with sqlite3.connect(database_path) as db:
+    print("Loading representative empty contracts from SQLite...", flush=True)
+    with sqlite3.connect(database_path, timeout=5) as db:
         db.row_factory = sqlite3.Row
         rows = db.execute(
             """
             WITH empty AS (
-                SELECT i.id, i.symbol, i.expiry_date, i.strike, i.option_type,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY i.expiry_date, i.option_type
-                           ORDER BY ABS(i.strike - (
-                               SELECT AVG(x.strike)
-                               FROM instruments x
-                               WHERE x.broker='FYERS'
-                                 AND x.underlying='NIFTY'
-                                 AND x.option_type=i.option_type
-                                 AND x.expiry_date=i.expiry_date
-                                 AND x.strike > 0
-                           )), i.strike
-                       ) AS rn
+                SELECT i.id, i.symbol, i.expiry_date, i.strike, i.option_type
                 FROM instruments i
                 LEFT JOIN (
                     SELECT instrument_id, COUNT(*) AS cnt
@@ -160,13 +149,30 @@ def main() -> None:
                   AND i.expiry_date <= date('now')
                   AND i.strike > 0
                   AND COALESCE(c.cnt,0)=0
+            ),
+            expiry_avg AS (
+                SELECT expiry_date, option_type, AVG(strike) AS avg_strike
+                FROM empty
+                GROUP BY expiry_date, option_type
+            ),
+            ranked AS (
+                SELECT e.id, e.symbol, e.expiry_date, e.strike, e.option_type,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY e.expiry_date, e.option_type
+                           ORDER BY ABS(e.strike-a.avg_strike), e.strike
+                       ) AS rn
+                FROM empty e
+                JOIN expiry_avg a
+                  ON a.expiry_date=e.expiry_date
+                 AND a.option_type=e.option_type
             )
             SELECT id, symbol, expiry_date, strike, option_type
-            FROM empty
+            FROM ranked
             WHERE rn=1
             ORDER BY expiry_date, option_type
             """
         ).fetchall()
+    print(f"SQLite selection complete: {len(rows)} representative rows.", flush=True)
 
     if args.max_probes:
         rows = rows[: args.max_probes]

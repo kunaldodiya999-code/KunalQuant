@@ -296,6 +296,18 @@ class InstrumentManager:
                 expiry_value.strftime("%b").upper()
             )
 
+            # Historical FYERS symbols also use an unpadded
+            # numeric month token, e.g.:
+            #
+            #   2021-01-07 -> NIFTY2110710600CE
+            #                    21 + 1 + 07 + 10600
+            #
+            # Keep both padded and unpadded variants so the
+            # expiry supplied by FYERS remains authoritative.
+            month_number_unpadded = str(
+                int(month_number)
+            )
+
             expiry_candidates = [
                 year_code
                 + month_letter
@@ -309,8 +321,15 @@ class InstrumentManager:
                 + month_short,
 
                 year_code
+                + month_number_unpadded
+                + day_code,
+
+                year_code
                 + month_number
                 + day_code,
+
+                year_code
+                + month_number_unpadded,
 
                 year_code
                 + month_number,

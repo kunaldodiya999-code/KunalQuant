@@ -43,8 +43,8 @@ def test_repair_candidates_include_empty_and_partial_but_respect_threshold(tmp_p
                 SELECT 2, '1', 'FYERS_FNO_HISTORY', value
                 FROM (SELECT 1 AS value UNION ALL SELECT 2 UNION ALL SELECT 3);
             INSERT INTO candles
-                SELECT 3, '1', 'FYERS_HISTORY', value
-                FROM (SELECT 1 AS value UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4);
+                SELECT 3, '1', 'FYERS_FNO_HISTORY', value
+                FROM (SELECT 1 AS value UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5);
         """)
     rows = load_repair_candidates(database, limit=None, min_candles=5)
     assert [(row["instrument_id"], row["existing_candles"]) for row in rows] == [(1, 0), (2, 3)]

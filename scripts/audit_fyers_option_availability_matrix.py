@@ -194,7 +194,8 @@ def main() -> None:
             first_dt = _to_dt(first_ts)
             last_dt = _to_dt(last_ts)
             writer.writerow({
-                **row,
+                **{k: row[k] for k in ("symbol", "expiry_date", "strike", "option_type", "existing_candles")},
+                "instrument_id": row["id"],
                 "range_from": range_from.isoformat(),
                 "range_to": expiry.isoformat(),
                 "status": status,

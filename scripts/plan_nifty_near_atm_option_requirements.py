@@ -124,21 +124,32 @@ def audit_existing(db: sqlite3.Connection, required: dict[int, dict]) -> None:
         return
     placeholders = ",".join("?" for _ in instrument_ids)
     sql = f"""
-        SELECT instrument_id, timestamp
+        SELECT instrument_id,
+               date(timestamp, 'unixepoch', '+5 hours', '+30 minutes') AS trade_date,
+               COUNT(*) AS candle_count,
+               MIN(timestamp) AS first_timestamp,
+               MAX(timestamp) AS last_timestamp
         FROM candles
         WHERE resolution=? AND source=? AND instrument_id IN ({placeholders})
+        GROUP BY instrument_id, trade_date
     """
     existing_days: dict[int, set[str]] = defaultdict(set)
     existing_counts: dict[int, int] = defaultdict(int)
     existing_first: dict[int, int] = {}
     existing_last: dict[int, int] = {}
-    for instrument_id, timestamp in db.execute(sql, [TIMEFRAME, OPTION_SOURCE, *instrument_ids]):
+    for instrument_id, trade_date, candle_count, first_ts, last_ts in db.execute(
+        sql, [TIMEFRAME, OPTION_SOURCE, *instrument_ids]
+    ):
         instrument_id = int(instrument_id)
-        timestamp = int(timestamp)
-        existing_counts[instrument_id] += 1
-        existing_days[instrument_id].add(ist_date(timestamp))
-        existing_first[instrument_id] = min(timestamp, existing_first.get(instrument_id, timestamp))
-        existing_last[instrument_id] = max(timestamp, existing_last.get(instrument_id, timestamp))
+        existing_days[instrument_id].add(str(trade_date))
+        existing_counts[instrument_id] += int(candle_count)
+        existing_first[instrument_id] = min(
+            int(first_ts), existing_first.get(instrument_id, int(first_ts))
+        )
+        existing_last[instrument_id] = max(
+            int(last_ts), existing_last.get(instrument_id, int(last_ts))
+        )
+
     for instrument_id, item in required.items():
         required_days = item["required_days"]
         covered_days = existing_days[instrument_id] & required_days
@@ -148,7 +159,9 @@ def audit_existing(db: sqlite3.Connection, required: dict[int, dict]) -> None:
         item["existing_candles_total"] = existing_counts[instrument_id]
         item["existing_first_timestamp"] = existing_first.get(instrument_id)
         item["existing_last_timestamp"] = existing_last.get(instrument_id)
-        item["existing_coverage_pct"] = round(100 * len(covered_days) / max(1, len(required_days)), 2)
+        item["existing_coverage_pct"] = round(
+            100 * len(covered_days) / max(1, len(required_days)), 2
+        )
         if len(covered_days) == len(required_days):
             item["existing_status"] = "COVERED"
         elif covered_days:

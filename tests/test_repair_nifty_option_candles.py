@@ -9,7 +9,7 @@ from scripts.repair_nifty_option_candles import build_chunks, load_repair_candid
 
 
 def test_build_chunks_are_inclusive_non_overlapping_and_bounded():
-    chunks = build_chunks("2024-01-01", "2024-01-35".replace("35", "31"), 15)
+    chunks = build_chunks("2024-01-01", "2024-01-31", 15)
     assert chunks == [
         ("2024-01-01", "2024-01-15"),
         ("2024-01-16", "2024-01-31"),

@@ -13,7 +13,7 @@ def test_select_strikes_uses_actual_ladder_and_returns_atm_plus_minus_five():
 def test_select_strikes_does_not_assume_strike_spacing():
     strikes = [100, 125, 160, 200, 250, 310, 380, 460]
     selected = select_strikes(strikes, 215, radius=2)
-    assert selected == [160, 200, 250, 310, 380]
+    assert selected == [125, 160, 200, 250, 310]
 
 
 def test_nearest_expiry_never_selects_an_expiry_before_trade_date():

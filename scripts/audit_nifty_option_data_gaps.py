@@ -11,7 +11,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import sqlite3
-from pathlib import Path
 
 
 def main() -> None:
@@ -19,7 +18,15 @@ def main() -> None:
     parser.add_argument("--database", type=Path, default=None)
     args = parser.parse_args()
 
-    with sqlite3.connect(args.database) as db:
+    if args.database is None:
+        from config.settings import DATABASE_PATH
+        database_path = Path(DATABASE_PATH)
+    else:
+        database_path = args.database
+
+    print(f"Database : {database_path}")
+
+    with sqlite3.connect(database_path) as db:
         summary = db.execute(
             """
             SELECT

@@ -64,7 +64,7 @@ def build_range(expiry_date: str, days_before: int) -> tuple[str, str]:
     return (expiry - timedelta(days=days_before)).isoformat(), expiry.isoformat()
 
 
-def load_empty_contracts(database_path: Path, limit: int | None) -> list[sqlite3.Row]:
+def load_empty_contracts(database_path: Path, limit: int | None, symbols: list[str] | None = None) -> list[sqlite3.Row]:
     with sqlite3.connect(database_path) as db:
         db.row_factory = sqlite3.Row
         sql = """
@@ -89,10 +89,18 @@ def load_empty_contracts(database_path: Path, limit: int | None) -> list[sqlite3
               AND COALESCE(c.cnt, 0) = 0
             ORDER BY i.expiry_date, i.strike, i.option_type
         """
+        params = []
+        if symbols:
+            placeholders = ",".join("?" for _ in symbols)
+            sql = sql.replace(
+                "ORDER BY i.expiry_date, i.strike, i.option_type",
+                "AND i.symbol IN (" + placeholders + ") ORDER BY i.expiry_date, i.strike, i.option_type",
+            )
+            params.extend(symbols)
         if limit is not None:
             sql += " LIMIT ?"
-            return db.execute(sql, (limit,)).fetchall()
-        return db.execute(sql).fetchall()
+            params.append(limit)
+        return db.execute(sql, params).fetchall()
 
 
 def append_checkpoint(path: Path, row: dict) -> None:
@@ -119,6 +127,7 @@ def main() -> None:
         help="Contracts per run. Default 5. Use 0 for all remaining contracts.",
     )
     parser.add_argument("--pause", type=float, default=DEFAULT_PAUSE)
+    parser.add_argument("--symbols", nargs="+", default=None, help="Optional explicit symbols for controlled validation.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
 
@@ -129,7 +138,7 @@ def main() -> None:
         database_path = args.database
 
     limit = None if args.limit == 0 else max(1, args.limit)
-    rows = load_empty_contracts(database_path, limit)
+    rows = load_empty_contracts(database_path, limit, args.symbols)
 
     print("=" * 90)
     print("KUNAL QUANT — CONTROLLED NIFTY OPTION ACQUISITION")

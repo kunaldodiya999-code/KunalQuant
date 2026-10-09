@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import sqlite3
 from pathlib import Path
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--database", type=Path, required=True)
+    parser.add_argument("--database", type=Path, default=None)
     args = parser.parse_args()
 
     with sqlite3.connect(args.database) as db:

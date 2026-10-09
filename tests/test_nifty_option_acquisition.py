@@ -23,3 +23,18 @@ def test_build_range_rejects_negative_days():
     except ValueError:
         return
     raise AssertionError("negative days_before must fail")
+
+
+def test_checkpoint_status_distinguishes_partial():
+    def classify(result):
+        return (
+            "FAILED" if result["failed"] > 0
+            else "PARTIAL" if result["empty"] > 0 and result["inserted"] > 0
+            else "EMPTY" if result["inserted"] == 0
+            else "COMPLETED"
+        )
+
+    assert classify({"failed": 0, "empty": 1, "inserted": 6}) == "PARTIAL"
+    assert classify({"failed": 0, "empty": 2, "inserted": 0}) == "EMPTY"
+    assert classify({"failed": 1, "empty": 0, "inserted": 0}) == "FAILED"
+    assert classify({"failed": 0, "empty": 0, "inserted": 10}) == "COMPLETED"

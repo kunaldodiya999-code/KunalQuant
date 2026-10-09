@@ -21,7 +21,7 @@ import argparse
 import csv
 import sqlite3
 import sys
-from bisect import bisect_left, bisect_right
+from bisect import bisect_left
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -106,36 +106,55 @@ def select_strikes(strikes: list[float], spot: float, radius: int = 5) -> list[f
     return strikes[lo:hi]
 
 
-def nearest_expiry(expiries: list[str], trade_date: str) -> str | None:
+def nearest_expiry(expiries: list[str], trade_date: str, max_days: int = 90) -> str | None:
     idx = bisect_left(expiries, trade_date)
-    return expiries[idx] if idx < len(expiries) else None
+    if idx >= len(expiries):
+        return None
+    expiry = expiries[idx]
+    trade = datetime.fromisoformat(trade_date).date()
+    expiry_day = datetime.fromisoformat(expiry).date()
+    if (expiry_day - trade).days > max_days:
+        return None
+    return expiry
 
 
-def audit_existing(
-    db: sqlite3.Connection,
-    required: dict[tuple[int, str], dict],
-) -> None:
-    instrument_ids = [instrument_id for instrument_id, _ in required]
+def audit_existing(db: sqlite3.Connection, required: dict[int, dict]) -> None:
+    instrument_ids = list(required)
     if not instrument_ids:
         return
-
     placeholders = ",".join("?" for _ in instrument_ids)
     sql = f"""
-        SELECT instrument_id, COUNT(*), MIN(timestamp), MAX(timestamp)
+        SELECT instrument_id, timestamp
         FROM candles
         WHERE resolution=? AND source=? AND instrument_id IN ({placeholders})
-        GROUP BY instrument_id
     """
-    rows = db.execute(sql, [TIMEFRAME, OPTION_SOURCE, *instrument_ids])
-    stats = {int(i): (int(n), int(lo), int(hi)) for i, n, lo, hi in rows}
-
-    for instrument_id, _ in required:
-        item = required[(instrument_id, _)]
-        n, lo, hi = stats.get(instrument_id, (0, None, None))
-        item["existing_candles_total"] = n
-        item["existing_first_timestamp"] = lo
-        item["existing_last_timestamp"] = hi
-        item["existing_status"] = "POPULATED" if n > 0 else "EMPTY"
+    existing_days: dict[int, set[str]] = defaultdict(set)
+    existing_counts: dict[int, int] = defaultdict(int)
+    existing_first: dict[int, int] = {}
+    existing_last: dict[int, int] = {}
+    for instrument_id, timestamp in db.execute(sql, [TIMEFRAME, OPTION_SOURCE, *instrument_ids]):
+        instrument_id = int(instrument_id)
+        timestamp = int(timestamp)
+        existing_counts[instrument_id] += 1
+        existing_days[instrument_id].add(ist_date(timestamp))
+        existing_first[instrument_id] = min(timestamp, existing_first.get(instrument_id, timestamp))
+        existing_last[instrument_id] = max(timestamp, existing_last.get(instrument_id, timestamp))
+    for instrument_id, item in required.items():
+        required_days = item["required_days"]
+        covered_days = existing_days[instrument_id] & required_days
+        item["required_trading_days"] = len(required_days)
+        item["existing_days_with_candles"] = len(covered_days)
+        item["missing_required_days"] = len(required_days - existing_days[instrument_id])
+        item["existing_candles_total"] = existing_counts[instrument_id]
+        item["existing_first_timestamp"] = existing_first.get(instrument_id)
+        item["existing_last_timestamp"] = existing_last.get(instrument_id)
+        item["existing_coverage_pct"] = round(100 * len(covered_days) / max(1, len(required_days)), 2)
+        if len(covered_days) == len(required_days):
+            item["existing_status"] = "COVERED"
+        elif covered_days:
+            item["existing_status"] = "PARTIAL"
+        else:
+            item["existing_status"] = "EMPTY"
 
 
 def build_manifest(
@@ -160,7 +179,7 @@ def build_manifest(
         max_selected_strikes = 0
 
         for timestamp, spot, trade_date in spot_rows:
-            expiry = nearest_expiry(expiries, trade_date)
+            expiry = nearest_expiry(expiries, trade_date, max_days=90)
             if expiry is None:
                 timestamps_without_expiry += 1
                 continue
@@ -220,17 +239,14 @@ def build_manifest(
             out["required_spot_timestamps"] += item["required_spot_timestamps"]
             out["required_days"].update(item["required_days"])
 
-        audit_existing(db, {(i, ""): v for i, v in collapsed.items()})
+        audit_existing(db, collapsed)
 
     rows = []
     for item in sorted(collapsed.values(), key=lambda x: (x["expiry_date"], x["strike"], x["option_type"])):
-        required_days = len(item.pop("required_days"))
-        existing = item.pop("existing_candles_total", 0)
+        item["required_trading_days"] = len(item.pop("required_days"))
         status = item.pop("existing_status", "EMPTY")
-        item["required_trading_days"] = required_days
-        item["existing_candles_total"] = existing
         item["existing_status"] = status
-        item["action"] = "REUSE_EXISTING" if status == "POPULATED" else "ACQUIRE"
+        item["action"] = "REUSE_EXISTING" if status == "COVERED" else "ACQUIRE"
         rows.append(item)
 
     output_prefix.parent.mkdir(parents=True, exist_ok=True)
@@ -240,7 +256,9 @@ def build_manifest(
     fields = [
         "instrument_id", "symbol", "expiry_date", "strike", "option_type",
         "first_required_date", "last_required_date", "required_trading_days",
-        "required_spot_timestamps", "existing_candles_total",
+        "required_spot_timestamps", "required_trading_days",
+        "existing_days_with_candles", "missing_required_days",
+        "existing_coverage_pct", "existing_candles_total",
         "existing_status", "action",
     ]
     with manifest_path.open("w", newline="", encoding="utf-8-sig") as f:
@@ -249,6 +267,7 @@ def build_manifest(
         writer.writerows(rows)
 
     reuse = sum(r["action"] == "REUSE_EXISTING" for r in rows)
+    partial = sum(r["existing_status"] == "PARTIAL" for r in rows)
     acquire = sum(r["action"] == "ACQUIRE" for r in rows)
     summary = [
         ("start_date", start_date),
@@ -257,7 +276,8 @@ def build_manifest(
         ("timestamps_without_future_expiry", timestamps_without_expiry),
         ("timestamps_without_strike_ladder", timestamps_without_strikes),
         ("unique_required_contracts", len(rows)),
-        ("already_populated_contracts", reuse),
+        ("fully_covered_contracts", reuse),
+        ("partially_covered_contracts", partial),
         ("contracts_to_acquire", acquire),
         ("max_strikes_selected_per_timestamp", max_selected_strikes),
         ("strike_radius", radius),
@@ -277,7 +297,8 @@ def build_manifest(
     print(f"Without future expiry              : {timestamps_without_expiry:,}")
     print(f"Without strike ladder              : {timestamps_without_strikes:,}")
     print(f"Unique required contracts          : {len(rows):,}")
-    print(f"Already populated                  : {reuse:,}")
+    print(f"Fully covered existing contracts   : {reuse:,}")
+    print(f"Partially covered contracts        : {partial:,}")
     print(f"Need acquisition                   : {acquire:,}")
     print(f"Strike radius                      : +/- {radius} actual strikes")
     print()

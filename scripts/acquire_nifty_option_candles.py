@@ -179,11 +179,13 @@ def main() -> None:
                 "range_from": range_from,
                 "range_to": range_to,
                 "status": (
-                    "COMPLETED"
-                    if result["failed"] == 0 and result["inserted"] > 0
-                    else "EMPTY"
-                    if result["failed"] == 0 and result["inserted"] == 0
+                    "FAILED"
+                    if result["failed"] > 0
                     else "PARTIAL"
+                    if result["empty"] > 0 and result["inserted"] > 0
+                    else "EMPTY"
+                    if result["inserted"] == 0
+                    else "COMPLETED"
                 ),
                 "received": result["received"],
                 "inserted": result["inserted"],

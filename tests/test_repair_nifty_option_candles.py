@@ -12,7 +12,8 @@ def test_build_chunks_are_inclusive_non_overlapping_and_bounded():
     chunks = build_chunks("2024-01-01", "2024-01-31", 15)
     assert chunks == [
         ("2024-01-01", "2024-01-15"),
-        ("2024-01-16", "2024-01-31"),
+        ("2024-01-16", "2024-01-30"),
+        ("2024-01-31", "2024-01-31"),
     ]
 
 

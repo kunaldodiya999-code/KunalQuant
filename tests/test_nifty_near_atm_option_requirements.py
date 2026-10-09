@@ -19,3 +19,8 @@ def test_select_strikes_does_not_assume_strike_spacing():
 def test_nearest_expiry_never_selects_an_expiry_before_trade_date():
     assert nearest_expiry(["2024-01-04", "2024-01-11"], "2024-01-05") == "2024-01-11"
     assert nearest_expiry(["2024-01-04"], "2024-01-05") is None
+
+
+def test_nearest_expiry_rejects_unreasonably_distant_future_metadata():
+    assert nearest_expiry(["2024-11-21"], "2024-01-01", max_days=90) is None
+    assert nearest_expiry(["2024-01-01"], "2024-01-01", max_days=90) == "2024-01-01"

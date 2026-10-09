@@ -18,6 +18,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from indicators.ktmi.config import (
     KTMIConfig,
     MomentumConfig,
@@ -96,6 +98,12 @@ def load_fyers_bars() -> list[OHLCData]:
         )
         for row in rows
     ]
+
+
+@pytest.fixture(scope="module")
+def bars() -> list[OHLCData]:
+    """Provide real FYERS candles to the KTMI validation tests."""
+    return load_fyers_bars()
 
 
 def build_config(

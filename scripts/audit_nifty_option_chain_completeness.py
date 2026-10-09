@@ -13,13 +13,12 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-TZ = ZoneInfo("Asia/Kolkata")
+TZ_OFFSET = __import__("datetime").timezone(__import__("datetime").timedelta(hours=5, minutes=30))
 OPTION_SOURCE = "FYERS_FNO_HISTORY"
 SPOT_SYMBOL = "NSE:NIFTY50-INDEX"
 SPOT_SOURCE = "FYERS_HISTORY"
@@ -180,7 +179,7 @@ def run_audit(
             max_distance=max_distance,
             min_paired_oi_strikes=min_paired_oi_strikes,
         )
-        local_time = datetime.fromtimestamp(timestamp, TZ)
+        local_time = datetime.fromtimestamp(timestamp, TZ_OFFSET)
         row = {
             "expiry_date": expiry,
             "timestamp": timestamp,

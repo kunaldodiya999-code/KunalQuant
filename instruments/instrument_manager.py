@@ -366,7 +366,21 @@ class InstrumentManager:
 
                     continue
 
-                if not possible_strike.isdigit():
+                # Monthly FYERS symbols can make a date-shaped
+                # prefix appear to consume the first digits of the strike.
+                # Example:
+                #   NIFTY24NOV28000CE
+                # must decode as 24NOV + 28000, not
+                # 24NOV28 + 000.
+                #
+                # NIFTY option strikes in this historical dataset are
+                # at least four digits. Reject shorter numeric suffixes
+                # so the parser can fall through to the shorter, correct
+                # expiry token.
+                if (
+                    not possible_strike.isdigit()
+                    or len(possible_strike) < 4
+                ):
 
                     continue
 

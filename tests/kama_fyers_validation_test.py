@@ -19,6 +19,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from indicators.kama_trend_follower.config import (
     DEFAULT_KAMA_CONFIG,
 )

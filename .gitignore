@@ -21,3 +21,4 @@ data/
 fyers*.json
 fyers_nifty_expired_expiry_dates.txt
 *_test.txt
+fyers_auth_code.txt

@@ -296,6 +296,18 @@ class InstrumentManager:
                 expiry_value.strftime("%b").upper()
             )
 
+            # Historical FYERS symbols also use an unpadded
+            # numeric month token, e.g.:
+            #
+            #   2021-01-07 -> NIFTY2110710600CE
+            #                    21 + 1 + 07 + 10600
+            #
+            # Keep both padded and unpadded variants so the
+            # expiry supplied by FYERS remains authoritative.
+            month_number_unpadded = str(
+                int(month_number)
+            )
+
             expiry_candidates = [
                 year_code
                 + month_letter
@@ -309,8 +321,15 @@ class InstrumentManager:
                 + month_short,
 
                 year_code
+                + month_number_unpadded
+                + day_code,
+
+                year_code
                 + month_number
                 + day_code,
+
+                year_code
+                + month_number_unpadded,
 
                 year_code
                 + month_number,
@@ -347,7 +366,21 @@ class InstrumentManager:
 
                     continue
 
-                if not possible_strike.isdigit():
+                # Monthly FYERS symbols can make a date-shaped
+                # prefix appear to consume the first digits of the strike.
+                # Example:
+                #   NIFTY24NOV28000CE
+                # must decode as 24NOV + 28000, not
+                # 24NOV28 + 000.
+                #
+                # NIFTY option strikes in this historical dataset are
+                # at least four digits. Reject shorter numeric suffixes
+                # so the parser can fall through to the shorter, correct
+                # expiry token.
+                if (
+                    not possible_strike.isdigit()
+                    or len(possible_strike) < 4
+                ):
 
                     continue
 

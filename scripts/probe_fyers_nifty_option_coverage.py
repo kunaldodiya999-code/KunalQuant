@@ -1,8 +1,7 @@
 """Probe FYERS availability for representative empty NIFTY option contracts.
 
-The probe is read-only. It does not insert or modify market data.
-One CE and one PE are selected per expiry, preferring strikes near the
-median available strike for that expiry. Results are written to CSV.
+Read-only: no database writes. Start with a small probe batch because the
+FYERS SDK's historical-data request does not expose a client timeout here.
 """
 
 from __future__ import annotations
@@ -57,7 +56,9 @@ def _probe(client, symbol: str, expiry: str, days_before: int, retries: int) -> 
             else:
                 first_ts = last_ts = ""
             return "AVAILABLE" if candles else "NO_DATA", len(candles), first_ts, last_ts, ""
-        except Exception as exc:  # FYERS SDK exposes heterogeneous API exceptions
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
             last_error = str(exc)
             if attempt < retries:
                 time.sleep(1.5 * (attempt + 1))
@@ -70,8 +71,8 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "data" / "research" / "fyers_nifty_option_coverage_probe.csv")
     parser.add_argument("--days-before", type=int, default=30)
     parser.add_argument("--pause", type=float, default=0.7)
-    parser.add_argument("--retries", type=int, default=2)
-    parser.add_argument("--max-probes", type=int, default=0, help="0 = all expiry/type probes")
+    parser.add_argument("--retries", type=int, default=0)
+    parser.add_argument("--max-probes", type=int, default=4, help="0 = all expiry/type probes; default 4")
     args = parser.parse_args()
 
     if args.database is None:
@@ -138,6 +139,7 @@ def main() -> None:
         writer.writeheader()
 
         for index, row in enumerate(rows, 1):
+            print(f"[{index:03d}/{len(rows):03d}] PROBING {row['expiry_date']} {row['option_type']} {row['symbol']} ...", flush=True)
             status, count, first_ts, last_ts, error = _probe(
                 client, row["symbol"], row["expiry_date"], args.days_before, args.retries
             )
@@ -157,8 +159,8 @@ def main() -> None:
                 "last_timestamp": last_ts,
                 "error": error,
             })
-            print(f"[{index:03d}/{len(rows):03d}] {row['expiry_date']} {row['option_type']} {row['symbol']} -> {status} candles={count}")
             handle.flush()
+            print(f"[{index:03d}/{len(rows):03d}] RESULT {status} candles={count}", flush=True)
             if index < len(rows):
                 time.sleep(max(0.0, args.pause))
 

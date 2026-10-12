@@ -203,6 +203,68 @@ def _numeric_quality(candles: list, columns: list[str]) -> dict[str, Any]:
     }
 
 
+def _session_completeness(candles: list, resolution_minutes: int = 5) -> dict[str, Any]:
+    """Evaluate IST trading-session coverage without treating holidays as failures."""
+    session_open_minute = 9 * 60 + 15
+    session_close_start = 15 * 60 + 25
+    step = resolution_minutes * 60
+    by_date: dict[str, list[int]] = {}
+    invalid_timestamps = 0
+    for candle in candles:
+        if not isinstance(candle, (list, tuple)) or not candle:
+            continue
+        try:
+            ts = int(float(candle[0]))
+            local = datetime.fromtimestamp(ts, timezone.utc).astimezone()
+            by_date.setdefault(local.date().isoformat(), []).append(ts)
+        except (ValueError, TypeError, OverflowError):
+            invalid_timestamps += 1
+
+    sessions = []
+    for session_date, timestamps in sorted(by_date.items()):
+        unique = sorted(set(timestamps))
+        local_times = [datetime.fromtimestamp(ts, timezone.utc).astimezone() for ts in unique]
+        in_session = [x for x in local_times if session_open_minute <= x.hour * 60 + x.minute <= session_close_start and x.second == 0]
+        expected = int(((session_close_start - session_open_minute) * 60) / step) + 1
+        expected_set = {
+            int(datetime.combine(date.fromisoformat(session_date), datetime.min.time(), tzinfo=local_times[0].tzinfo).timestamp())
+            + (session_open_minute * 60) + i * step
+            for i in range(expected)
+        }
+        actual_set = {int(x.timestamp()) for x in in_session}
+        missing = sorted(expected_set - actual_set)
+        unexpected = sorted(actual_set - expected_set)
+        sessions.append({
+            "date": session_date,
+            "candles_total": len(timestamps),
+            "unique_timestamps": len(unique),
+            "in_session_candles": len(in_session),
+            "expected_full_session_candles": expected,
+            "missing_expected_candles": len(missing),
+            "first_ist": local_times[0].isoformat() if local_times else None,
+            "last_ist": local_times[-1].isoformat() if local_times else None,
+            "outside_session_candles": len(local_times) - len(in_session),
+            "full_session": len(in_session) == expected and not missing,
+            "partial_or_gap": bool(missing),
+            "missing_first": datetime.fromtimestamp(missing[0], timezone.utc).astimezone().isoformat() if missing else None,
+            "unexpected_in_expected_window": len(unexpected),
+        })
+
+    full = [s for s in sessions if s["full_session"]]
+    partial = [s for s in sessions if s["partial_or_gap"] or s["outside_session_candles"]]
+    return {
+        "timezone": "local system timezone (expected IST on KunalQuant workstation)",
+        "session_window_ist": "09:15-15:25 candle starts",
+        "resolution_minutes": resolution_minutes,
+        "expected_full_session_candles": int(((session_close_start - session_open_minute) * 60) / step) + 1,
+        "sessions_found": len(sessions),
+        "full_sessions": len(full),
+        "partial_or_gap_sessions": len(partial),
+        "invalid_timestamps": invalid_timestamps,
+        "sessions": sessions,
+    }
+
+
 def summarize_history(response: dict[str, Any], resolution_minutes: int = 5) -> dict[str, Any]:
     candles = extract_candles(response)
     keys = sorted(response.keys())
@@ -220,6 +282,7 @@ def summarize_history(response: dict[str, Any], resolution_minutes: int = 5) -> 
     dt = [datetime.fromtimestamp(ts, timezone.utc).astimezone().isoformat() for ts in timestamps]
     columns = _response_columns(response)
     quality = _numeric_quality(candles, columns)
+    session_quality = _session_completeness(candles, resolution_minutes)
     key_text = " ".join(keys).lower()
     schema_greek = any(word in key_text for word in ("greek", "delta", "gamma", "theta", "vega", "iv", "implied"))
     schema_oi = any(word in key_text for word in ("oi", "open_interest", "openinterest"))
@@ -237,6 +300,7 @@ def summarize_history(response: dict[str, Any], resolution_minutes: int = 5) -> 
         "columns": columns,
         "sample_candle": candles[0] if candles else None,
         "value_quality": quality,
+        "session_quality": session_quality,
         "raw_error": response.get("error") if response.get("s") == "error" else None,
     }
 

@@ -93,5 +93,27 @@ class FyersExpiredHistoryQualityTests(unittest.TestCase):
         self.assertEqual(result["field_stats"], {})
 
 
+class FyersSessionQualityTests(unittest.TestCase):
+    def test_session_completeness_accepts_full_five_minute_session(self):
+        from scripts.validate_fyers_expired_history import _session_completeness
+        import datetime as dt
+        base = int(dt.datetime(2026, 1, 5, 3, 45, tzinfo=dt.timezone.utc).timestamp())
+        candles = [[base + i * 300, 1, 1, 1, 1] for i in range(75)]
+        result = _session_completeness(candles, 5)
+        self.assertEqual(result["expected_full_session_candles"], 75)
+        self.assertEqual(result["full_sessions"], 1)
+        self.assertEqual(result["partial_or_gap_sessions"], 0)
+
+    def test_session_completeness_flags_missing_candle(self):
+        from scripts.validate_fyers_expired_history import _session_completeness
+        import datetime as dt
+        base = int(dt.datetime(2026, 1, 5, 3, 45, tzinfo=dt.timezone.utc).timestamp())
+        candles = [[base + i * 300, 1, 1, 1, 1] for i in range(75) if i != 20]
+        result = _session_completeness(candles, 5)
+        self.assertEqual(result["full_sessions"], 0)
+        self.assertEqual(result["partial_or_gap_sessions"], 1)
+        self.assertEqual(result["sessions"][0]["missing_expected_candles"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

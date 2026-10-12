@@ -61,6 +61,13 @@ class FyersExpiredDownloaderTests(unittest.TestCase):
         self.assertIsNone(rows[0]["implied_volatility"])
         self.assertIsNone(rows[0]["delta"])
 
+    def test_no_data_response_is_classified_without_being_success(self):
+        from scripts.download_fyers_expired_options import is_no_data_response
+
+        self.assertTrue(is_no_data_response({"s": "no_data"}))
+        self.assertFalse(is_no_data_response({"s": "ok", "candles": []}))
+        self.assertFalse(is_no_data_response({"s": "error"}))
+
     def test_validate_columns_rejects_unknown_or_short_payloads(self):
         from scripts.download_fyers_expired_options import validate_response_shape
 

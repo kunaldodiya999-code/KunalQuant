@@ -20,8 +20,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from api.dhan_client import DhanAPIError, DhanClient, build_rolling_options_payload  # noqa: E402
-
 FIELDS = ("timestamp", "open", "high", "low", "close", "iv", "volume", "strike", "oi", "spot")
 STRIKES = [f"ATM{n:+d}" if n else "ATM" for n in range(-10, 11)]
 OPTION_TYPES = ("CALL", "PUT")
@@ -151,11 +149,13 @@ def main() -> int:
     print(f"Output: {run_dir}")
     print("Data meaning: rolling ATM-relative series; not fixed-expiry contract identity.")
     if not args.execute:
-        print("PLAN ONLY: no credentials read, no API calls, no files written.")
+        print("PLAN ONLY: no API calls and no files written.")
         print("To execute/resume, add --execute to this command.")
         for index, chunk in enumerate(chunks, 1):
             print(f"  chunk {index:02d}: {chunk[0]} -> {chunk[1]} (exclusive)")
         return 0
+
+    from api.dhan_client import DhanAPIError, DhanClient  # noqa: E402
 
     response_dir.mkdir(parents=True, exist_ok=True)
     if manifest_path.exists():

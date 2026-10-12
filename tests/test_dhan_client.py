@@ -67,5 +67,31 @@ class FyersExpiredContractParserTests(unittest.TestCase):
                          [(18150.0, "CE"), (18150.0, "PE")])
 
 
+class FyersExpiredHistoryQualityTests(unittest.TestCase):
+    def test_numeric_quality_detects_duplicates_and_named_fields(self):
+        from scripts.validate_fyers_expired_history import _numeric_quality
+
+        candles = [
+            [1000, 100, 110, 90, 105, 1000, 500, 0.5, 0.01],
+            [1300, 105, 112, 100, 108, 1200, 520, 0.55, 0.02],
+            [1300, 108, 113, 101, 109, 900, 0, 0.60, 0.0],
+        ]
+        result = _numeric_quality(
+            candles,
+            ["timestamp", "open", "high", "low", "close", "volume", "oi", "delta", "gamma"],
+        )
+        self.assertEqual(result["duplicate_timestamps"], 1)
+        self.assertEqual(result["invalid_rows"], 0)
+        self.assertEqual(result["field_stats"]["oi"]["zero_values"], 1)
+        self.assertEqual(result["field_stats"]["delta"]["present_values"], 3)
+
+    def test_numeric_quality_does_not_invent_fields_without_columns(self):
+        from scripts.validate_fyers_expired_history import _numeric_quality
+
+        result = _numeric_quality([[1000, 1, 2, 0, 1]], [])
+        self.assertEqual(result["columns"], [])
+        self.assertEqual(result["field_stats"], {})
+
+
 if __name__ == "__main__":
     unittest.main()

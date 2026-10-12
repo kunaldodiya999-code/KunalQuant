@@ -9,7 +9,7 @@ No order APIs, no SQLite writes, no credentials printed.
 Run:
   python scripts/validate_fyers_expired_history.py
 Optional:
-  --old-target 2024-10-15 --recent-target 2026-09-15
+  --old-target 2024-10-24 --recent-target 2026-09-15
   --resolution 5
 """
 from __future__ import annotations
@@ -142,7 +142,7 @@ def summarize_history(response: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate FYERS expired NIFTY options data without DB writes.")
-    parser.add_argument("--old-target", default="2024-10-15")
+    parser.add_argument("--old-target", default="2024-10-24")
     parser.add_argument("--recent-target", default="2026-09-15")
     parser.add_argument("--resolution", choices=["1", "3", "5", "10", "15"], default="5")
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "data" / "raw" / "fyers_expired_audit" / "fyers_expired_validation.json")

@@ -76,6 +76,10 @@ def main() -> int:
         parser.error(f"manifest not found: {manifest_path}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     requests = manifest.get("requests", {})
+    planned_tasks = manifest.get("plan_signature", [])
+    planned_ids = set()
+    for index, task in enumerate(planned_tasks, 1):
+        planned_ids.add(f"{index:04d}_{task['from_date']}_{task['to_date']}_{task['strike']}_{task['option_type']}")
     all_rows: list[dict[str, Any]] = []
     response_checks = []
     for request_id, task in requests.items():
@@ -164,7 +168,9 @@ def main() -> int:
 
     report = {
         "run_configuration": manifest.get("configuration"),
+        "planned_requests": len(planned_ids) if planned_ids else len(requests),
         "manifest_requests": len(requests),
+        "request_ids_missing_from_manifest": sorted(planned_ids - set(requests)) if planned_ids else [],
         "requests_with_saved_response": sum(1 for x in response_checks if x["status"] == "read"),
         "missing_or_incomplete_requests": [x for x in response_checks if x["status"] != "read"],
         "requests_with_field_length_mismatches": [x for x in response_checks if x.get("field_length_mismatches")],
@@ -202,7 +208,8 @@ def main() -> int:
     print(f"Sessions with missing expected 5m starts: {report['sessions_with_missing_5m_starts']}")
     print(f"Normalized CSV: {csv_path}")
     print(f"Quality report: {report_path}")
-    return 0 if not report["missing_or_incomplete_requests"] else 2
+    incomplete = bool(report["missing_or_incomplete_requests"] or report["request_ids_missing_from_manifest"])
+    return 0 if not incomplete else 2
 
 
 if __name__ == "__main__":

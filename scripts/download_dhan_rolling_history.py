@@ -69,6 +69,16 @@ def rows_from_response(response: dict[str, Any], option_type: str, request_strik
     return rows
 
 
+def response_is_success(response: dict[str, Any]) -> bool:
+    """Recognize common successful Dhan response envelopes."""
+    if response.get("errorCode") or response.get("errorType"):
+        return False
+    status = response.get("status")
+    if isinstance(status, str) and status.lower() in {"error", "failed", "failure"}:
+        return False
+    return isinstance(response.get("data"), dict)
+
+
 def inspect_response(response: dict[str, Any], option_type: str) -> dict[str, Any]:
     data = response.get("data")
     block = data.get("ce" if option_type == "CALL" else "pe") if isinstance(data, dict) else None
@@ -187,7 +197,9 @@ def main() -> int:
             try:
                 saved_response = json.loads(response_path.read_text(encoding="utf-8"))
                 saved_quality = inspect_response(saved_response, task["option_type"])
-                if saved_quality["rows"] > 0 and not saved_quality["field_length_mismatches"]:
+                if (response_is_success(saved_response)
+                        and saved_quality["rows"] > 0
+                        and not saved_quality["field_length_mismatches"]):
                     completed += 1
                     total_rows += int(saved_quality["rows"])
                     continue
@@ -208,6 +220,17 @@ def main() -> int:
             return 1
 
         quality = inspect_response(response, task["option_type"])
+        if not response_is_success(response):
+            manifest["last_error"] = {
+                "request_id": request_id,
+                "error": response.get("errorMessage") or response.get("errorDescription") or response.get("message") or response.get("errorCode") or "unexpected response envelope",
+            }
+            response_path.write_text(json.dumps(response, separators=(",", ":")), encoding="utf-8")
+            manifest["requests"][request_id] = {**task, "status": "api_error", "rows": quality["rows"], "quality": quality, "response_file": response_path.name}
+            manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            print(f"STOPPED at {request_id}: API response was not a successful data payload.")
+            print(f"Completed requests: {completed}/{len(tasks)}. Fix the issue and rerun same command to resume.")
+            return 1
         response_path.write_text(json.dumps(response, separators=(",", ":")), encoding="utf-8")
         manifest["requests"][request_id] = {
             **task,

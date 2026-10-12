@@ -64,6 +64,10 @@ class FyersExpiredDownloaderTests(unittest.TestCase):
             [x["symbol"] for x in select_contracts(contracts, None, None, "CE")],
             ["A", "B"],
         )
+        self.assertEqual(
+            [x["symbol"] for x in select_contracts(contracts, None, None, None, ["C", "A"])],
+            ["A", "C"],
+        )
 
     def test_build_expiry_windows_respects_fyers_366_day_limit(self):
         from scripts.download_fyers_expired_options import build_expiry_windows

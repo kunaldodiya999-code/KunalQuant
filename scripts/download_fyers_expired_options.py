@@ -102,19 +102,12 @@ def _parse_symbol(symbol: str) -> tuple[float | None, str | None]:
 
 def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
-    for value in _walk(response):
-        if not isinstance(value, dict):
-            continue
-        symbol = None
-        for key in ("symbol", "trading_symbol", "tradingSymbol", "name"):
-            candidate = value.get(key)
-            if isinstance(candidate, str) and re.search(r"(CE|PE)$", candidate):
-                symbol = candidate
-                break
-        if not symbol:
-            continue
-        raw_strike = value.get("strike", value.get("strike_price", value.get("strikePrice")))
-        side = re.search(r"(CE|PE)$", symbol).group(1)
+
+    def add_symbol(symbol: str, raw_strike: Any = None) -> None:
+        side_match = re.search(r"(CE|PE)$", symbol)
+        if not side_match:
+            return
+        side = side_match.group(1)
         if raw_strike is None:
             parsed_strike, parsed_side = _parse_symbol(symbol)
             raw_strike = parsed_strike
@@ -122,8 +115,29 @@ def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
         try:
             strike = float(raw_strike)
         except (TypeError, ValueError):
-            continue
+            return
         found[symbol] = {"symbol": symbol, "strike": strike, "side": side}
+
+    def collect(value: Any) -> None:
+        if isinstance(value, dict):
+            symbol = None
+            for key in ("symbol", "trading_symbol", "tradingSymbol", "name"):
+                candidate = value.get(key)
+                if isinstance(candidate, str) and re.search(r"(CE|PE)$", candidate):
+                    symbol = candidate
+                    break
+            if symbol:
+                raw_strike = value.get("strike", value.get("strike_price", value.get("strikePrice")))
+                add_symbol(symbol, raw_strike)
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+        elif isinstance(value, str) and re.search(r"(CE|PE)$", value):
+            add_symbol(value)
+
+    collect(response)
     return sorted(found.values(), key=lambda x: (x["strike"], x["symbol"]))
 
 

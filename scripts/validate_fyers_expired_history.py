@@ -124,7 +124,86 @@ def extract_candles(response: dict[str, Any]) -> list:
     return []
 
 
-def summarize_history(response: dict[str, Any]) -> dict[str, Any]:
+def _response_columns(response: dict[str, Any]) -> list[str]:
+    """Return candle column names when FYERS exposes them in the response."""
+    candidates = [response.get("columns")]
+    data = response.get("data")
+    if isinstance(data, dict):
+        candidates.append(data.get("columns"))
+    for value in candidates:
+        if isinstance(value, list) and all(isinstance(x, str) for x in value):
+            return value
+    return []
+
+
+def _numeric_quality(candles: list, columns: list[str]) -> dict[str, Any]:
+    """Inspect actual candle values without assuming a fixed FYERS column order."""
+    timestamps: list[int] = []
+    widths: list[int] = []
+    duplicates = 0
+    non_monotonic = 0
+    gaps: list[int] = []
+    invalid_rows = 0
+    for candle in candles:
+        if not isinstance(candle, (list, tuple)) or not candle:
+            invalid_rows += 1
+            continue
+        widths.append(len(candle))
+        try:
+            timestamps.append(int(float(candle[0])))
+        except (ValueError, TypeError):
+            invalid_rows += 1
+
+    for previous, current in zip(timestamps, timestamps[1:]):
+        delta = current - previous
+        if delta <= 0:
+            if delta == 0:
+                duplicates += 1
+            else:
+                non_monotonic += 1
+        elif delta > 3600:
+            gaps.append(delta)
+
+    # Inspect named fields when FYERS provides columns. If columns are absent,
+    # retain the raw width/sample as evidence rather than guessing field indexes.
+    field_stats: dict[str, dict[str, Any]] = {}
+    for idx, name in enumerate(columns):
+        values = []
+        for candle in candles:
+            if isinstance(candle, (list, tuple)) and idx < len(candle):
+                values.append(candle[idx])
+        numeric = []
+        for value in values:
+            try:
+                number = float(value)
+                if number == number:  # not NaN
+                    numeric.append(number)
+            except (ValueError, TypeError):
+                pass
+        lname = name.lower()
+        if any(token in lname for token in ("oi", "open_interest", "openinterest", "delta", "gamma", "theta", "vega", "iv", "implied")):
+            field_stats[name] = {
+                "present_values": len(numeric),
+                "total_values": len(values),
+                "missing_or_non_numeric": len(values) - len(numeric),
+                "zero_values": sum(1 for x in numeric if x == 0),
+                "min": min(numeric) if numeric else None,
+                "max": max(numeric) if numeric else None,
+            }
+
+    return {
+        "invalid_rows": invalid_rows,
+        "duplicate_timestamps": duplicates,
+        "non_monotonic_timestamps": non_monotonic,
+        "gaps_over_60_minutes": len(gaps),
+        "largest_gap_seconds": max(gaps) if gaps else 0,
+        "distinct_candle_widths": sorted(set(widths)),
+        "columns": columns,
+        "field_stats": field_stats,
+    }
+
+
+def summarize_history(response: dict[str, Any], resolution_minutes: int = 5) -> dict[str, Any]:
     candles = extract_candles(response)
     keys = sorted(response.keys())
     if isinstance(response.get("data"), dict):
@@ -139,10 +218,11 @@ def summarize_history(response: dict[str, Any]) -> dict[str, Any]:
             except (ValueError, TypeError):
                 pass
     dt = [datetime.fromtimestamp(ts, timezone.utc).astimezone().isoformat() for ts in timestamps]
-    # Key names and candle width are evidence of schema, not proof each value is populated.
-    greek_words = ("greek", "delta", "gamma", "theta", "vega", "iv", "implied")
-    oi_words = ("oi", "open_interest", "openinterest")
+    columns = _response_columns(response)
+    quality = _numeric_quality(candles, columns)
     key_text = " ".join(keys).lower()
+    schema_greek = any(word in key_text for word in ("greek", "delta", "gamma", "theta", "vega", "iv", "implied"))
+    schema_oi = any(word in key_text for word in ("oi", "open_interest", "openinterest"))
     return {
         "status": response.get("s"),
         "message": response.get("message") or response.get("messageCode"),
@@ -152,9 +232,11 @@ def summarize_history(response: dict[str, Any]) -> dict[str, Any]:
         "first_timestamp_utc": dt[0] if dt else None,
         "last_timestamp_utc": dt[-1] if dt else None,
         "distinct_candle_widths": sorted(set(widths)),
-        "greek_or_iv_key_visible": any(word in key_text for word in greek_words) or any(width >= 10 for width in widths),
-        "oi_key_visible": any(word in key_text for word in oi_words),
+        "greek_or_iv_key_visible": schema_greek or any(k for k in quality["field_stats"] if k.lower() in ("delta", "gamma", "theta", "vega", "iv")),
+        "oi_key_visible": schema_oi or any("oi" in k.lower() for k in quality["field_stats"]),
+        "columns": columns,
         "sample_candle": candles[0] if candles else None,
+        "value_quality": quality,
         "raw_error": response.get("error") if response.get("s") == "error" else None,
     }
 
@@ -275,7 +357,7 @@ def main() -> int:
                 "contract": contract,
                 "range_from": range_from,
                 "range_to": range_to,
-                **summarize_history(response),
+                **summarize_history(response, int(args.resolution)),
             }
             samples.append(summary)
             print(f"  status={summary['status']} candles={summary['candle_count']} widths={summary['distinct_candle_widths']} keys={summary['data_keys'] or summary['top_level_keys']}", flush=True)

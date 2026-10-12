@@ -19,6 +19,7 @@ import json
 import re
 import sys
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -204,7 +205,8 @@ def _numeric_quality(candles: list, columns: list[str]) -> dict[str, Any]:
 
 
 def _session_completeness(candles: list, resolution_minutes: int = 5) -> dict[str, Any]:
-    """Evaluate IST trading-session coverage without treating holidays as failures."""
+    """Evaluate NSE Asia/Kolkata trading-session coverage without treating holidays as failures."""
+    ist = ZoneInfo("Asia/Kolkata")
     session_open_minute = 9 * 60 + 15
     session_close_start = 15 * 60 + 25
     step = resolution_minutes * 60
@@ -215,7 +217,7 @@ def _session_completeness(candles: list, resolution_minutes: int = 5) -> dict[st
             continue
         try:
             ts = int(float(candle[0]))
-            local = datetime.fromtimestamp(ts, timezone.utc).astimezone()
+            local = datetime.fromtimestamp(ts, timezone.utc).astimezone(ist)
             by_date.setdefault(local.date().isoformat(), []).append(ts)
         except (ValueError, TypeError, OverflowError):
             invalid_timestamps += 1
@@ -227,7 +229,7 @@ def _session_completeness(candles: list, resolution_minutes: int = 5) -> dict[st
         in_session = [x for x in local_times if session_open_minute <= x.hour * 60 + x.minute <= session_close_start and x.second == 0]
         expected = int(((session_close_start - session_open_minute) * 60) / step) + 1
         expected_set = {
-            int(datetime.combine(date.fromisoformat(session_date), datetime.min.time(), tzinfo=local_times[0].tzinfo).timestamp())
+            int(datetime.combine(date.fromisoformat(session_date), datetime.min.time(), tzinfo=ist).timestamp())
             + (session_open_minute * 60) + i * step
             for i in range(expected)
         }
@@ -246,14 +248,14 @@ def _session_completeness(candles: list, resolution_minutes: int = 5) -> dict[st
             "outside_session_candles": len(local_times) - len(in_session),
             "full_session": len(in_session) == expected and not missing,
             "partial_or_gap": bool(missing),
-            "missing_first": datetime.fromtimestamp(missing[0], timezone.utc).astimezone().isoformat() if missing else None,
+            "missing_first": datetime.fromtimestamp(missing[0], timezone.utc).astimezone(ist).isoformat() if missing else None,
             "unexpected_in_expected_window": len(unexpected),
         })
 
     full = [s for s in sessions if s["full_session"]]
     partial = [s for s in sessions if s["partial_or_gap"] or s["outside_session_candles"]]
     return {
-        "timezone": "local system timezone (expected IST on KunalQuant workstation)",
+        "timezone": "Asia/Kolkata",
         "session_window_ist": "09:15-15:25 candle starts",
         "resolution_minutes": resolution_minutes,
         "expected_full_session_candles": int(((session_close_start - session_open_minute) * 60) / step) + 1,

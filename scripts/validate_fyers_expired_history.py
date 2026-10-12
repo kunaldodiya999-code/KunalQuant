@@ -73,13 +73,23 @@ def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
             symbol = next((str(value[k]) for k in ("symbol", "trading_symbol", "tradingSymbol", "name")
                            if isinstance(value.get(k), str) and re.search(r"(CE|PE)$", str(value[k]))), None)
             if symbol:
-                match = re.search(r"(\d+(?:\.\d+)?)(CE|PE)$", symbol)
-                if match:
-                    side = match.group(2)
+                side_match = re.search(r"(CE|PE)$", symbol)
+                if side_match:
+                    side = side_match.group(1)
+                    raw_strike = value.get("strike", value.get("strike_price", value.get("strikePrice")))
+                    if raw_strike is None:
+                        # FYERS symbols concatenate expiry and strike. A naive trailing-number
+                        # regex incorrectly turns 19200 into 2419200.
+                        strike_match = re.search(
+                            r"NIFTY\\d{2}(?:[A-Z]\\d{2}|\\d{4})(\\d+)(?:CE|PE)$",
+                            symbol,
+                        )
+                        if strike_match:
+                            raw_strike = strike_match.group(1)
                     try:
-                        strike = float(value.get("strike", value.get("strike_price", value.get("strikePrice", match.group(1)))))
+                        strike = float(raw_strike)
                     except (ValueError, TypeError):
-                        strike = float(match.group(1))
+                        continue
                     found[symbol] = {"symbol": symbol, "strike": strike, "side": side}
             for child in value.values():
                 collect(child)

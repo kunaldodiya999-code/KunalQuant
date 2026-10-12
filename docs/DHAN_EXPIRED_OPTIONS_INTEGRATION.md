@@ -17,7 +17,7 @@ Add the following to the local, ignored `.env` file (never commit it):
 DHAN_ACCESS_TOKEN=your_access_token_here
 ```
 
-The rolling-options example documents the `access-token` header. A valid
+For `/charts/rollingoption`, the endpoint-specific expiry mapping is `1=near expiry`, `2=next expiry`, `3=far expiry`; code `0` currently returns DH-905. The rolling-options example documents the `access-token` header. A valid
 token alone is not sufficient if Dhan Data APIs are not subscribed/enabled.
 Dhan documents a 24-hour lifetime for web-generated access tokens.
 
@@ -27,7 +27,7 @@ Use a known completed market date and a one-day interval. The end date is
 exclusive. Example:
 
 ```powershell
-python scripts/test_dhan_expired_options.py --from-date 2026-10-06 --to-date 2026-10-07 --expiry-flag WEEK --expiry-code 0 --strike ATM --option-type CALL
+python scripts/test_dhan_expired_options.py --from-date 2026-10-06 --to-date 2026-10-07 --expiry-flag WEEK --expiry-code 1 --strike ATM --option-type CALL
 ```
 
 The script performs one request, prints row counts and response fields, and

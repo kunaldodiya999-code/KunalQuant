@@ -18,7 +18,7 @@ import argparse
 import json
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +30,7 @@ from api.fyers_client import FyersClient  # noqa: E402
 
 UNDERLYING = "NSE:NIFTY50-INDEX"
 START = "2024-10-12"
-END = "2026-10-12"
+END = (date.today() - timedelta(days=1)).isoformat()  # FYERS rejects today/future as range_to
 
 
 def walk(value: Any):
@@ -162,7 +162,7 @@ def main() -> int:
     print("=" * 78)
     print("KUNAL QUANT — FYERS EXPIRED OPTIONS DATA VALIDATION")
     print("=" * 78)
-    print(f"Target period : {START} to {END}")
+    print(f"Target period : {START} to {END} (FYERS rejects today/future as range_to)")
     print(f"Resolution    : {args.resolution} minute")
     print("Request budget: maximum 7 API calls; no DB writes or orders")
     print("Step 1/3: discovering expiry dates...", flush=True)

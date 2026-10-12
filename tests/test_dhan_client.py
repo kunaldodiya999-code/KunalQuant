@@ -191,5 +191,16 @@ class DhanPlanOnlyTests(unittest.TestCase):
             self.assertEqual(list(Path(tmp).iterdir()), [])
 
 
+class DhanResponseEnvelopeTests(unittest.TestCase):
+    def test_error_envelope_is_not_success(self):
+        from scripts.download_dhan_rolling_history import response_is_success
+        self.assertFalse(response_is_success({"errorCode": "DH-905", "data": {}}))
+        self.assertFalse(response_is_success({"status": "error", "data": {}}))
+
+    def test_successful_data_envelope_is_accepted(self):
+        from scripts.download_dhan_rolling_history import response_is_success
+        self.assertTrue(response_is_success({"data": {"ce": {"timestamp": [1]}}}))
+
+
 if __name__ == "__main__":
     unittest.main()

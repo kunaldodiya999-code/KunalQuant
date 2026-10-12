@@ -115,5 +115,39 @@ class FyersSessionQualityTests(unittest.TestCase):
         self.assertEqual(result["sessions"][0]["missing_expected_candles"], 1)
 
 
+class DhanRollingDownloaderTests(unittest.TestCase):
+    def test_build_chunks_never_exceeds_thirty_days_and_end_is_exclusive(self):
+        from scripts.download_dhan_rolling_history import build_chunks
+
+        chunks = build_chunks("2025-01-01", "2025-02-15")
+        self.assertEqual(chunks[0], ("2025-01-01", "2025-01-31"))
+        self.assertEqual(chunks[-1], ("2025-01-31", "2025-02-15"))
+        self.assertTrue(all((__import__("datetime").date.fromisoformat(end) -
+                             __import__("datetime").date.fromisoformat(start)).days <= 30
+                            for start, end in chunks))
+
+    def test_rows_from_response_keeps_actual_strike_and_request_label(self):
+        from scripts.download_dhan_rolling_history import rows_from_response
+
+        response = {"data": {"ce": {
+            "timestamp": [1000, 1300], "strike": [22500, 22550],
+            "close": [10.0, 11.0], "oi": [100, 120], "spot": [22520, 22560],
+        }, "pe": None}}
+        rows = rows_from_response(response, "CALL", "ATM+1")
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1]["strike"], 22550)
+        self.assertEqual(rows[1]["request_strike"], "ATM+1")
+        self.assertEqual(rows[1]["option_type"], "CALL")
+        self.assertIsNone(rows[0]["iv"])
+
+    def test_inspect_response_flags_mismatched_array_lengths(self):
+        from scripts.download_dhan_rolling_history import inspect_response
+
+        response = {"data": {"ce": {"timestamp": [1, 2], "close": [10.0], "oi": [100, 200]}}}
+        quality = inspect_response(response, "CALL")
+        self.assertEqual(quality["rows"], 2)
+        self.assertEqual(quality["field_length_mismatches"], {"close": 1})
+
+
 if __name__ == "__main__":
     unittest.main()

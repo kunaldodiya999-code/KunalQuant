@@ -193,13 +193,22 @@ def main() -> int:
         request_id = f"{index:04d}_{task['from_date']}_{task['to_date']}_{task['strike']}_{task['option_type']}"
         existing = manifest["requests"].get(request_id, {})
         response_path = response_dir / f"{request_id}.json"
-        if existing.get("status") == "ok" and response_path.exists():
+        if response_path.exists():
             try:
                 saved_response = json.loads(response_path.read_text(encoding="utf-8"))
                 saved_quality = inspect_response(saved_response, task["option_type"])
                 if (response_is_success(saved_response)
                         and saved_quality["rows"] > 0
                         and not saved_quality["field_length_mismatches"]):
+                    if existing.get("status") != "ok":
+                        manifest["requests"][request_id] = {
+                            **task, "status": "ok", "rows": saved_quality["rows"],
+                            "quality": saved_quality, "response_file": response_path.name,
+                        }
+                        manifest["completed_requests"] = sum(
+                            1 for item in manifest["requests"].values() if item.get("status") == "ok"
+                        )
+                        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
                     completed += 1
                     total_rows += int(saved_quality["rows"])
                     continue

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import date
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -23,6 +24,8 @@ NIFTY_SECURITY_ID = 13
 MAX_RANGE_DAYS = 30
 ALLOWED_INTERVALS = {"1", "5", "15", "25", "60"}
 ALLOWED_DATA = {"open", "high", "low", "close", "iv", "volume", "strike", "oi", "spot"}
+DEFAULT_TIMEOUT_RETRIES = 2
+RETRY_BACKOFF_SECONDS = 1.0
 
 
 class DhanAPIError(RuntimeError):
@@ -103,9 +106,21 @@ def build_rolling_options_payload(
 class DhanClient:
     """Read-only DhanHQ Data API client."""
 
-    def __init__(self, access_token: str | None = None, timeout: float = 30.0):
+    def __init__(
+        self,
+        access_token: str | None = None,
+        timeout: float = 30.0,
+        timeout_retries: int = DEFAULT_TIMEOUT_RETRIES,
+        retry_backoff_seconds: float = RETRY_BACKOFF_SECONDS,
+    ):
         self.access_token = (access_token or os.getenv("DHAN_ACCESS_TOKEN", "")).strip()
         self.timeout = float(timeout)
+        self.timeout_retries = int(timeout_retries)
+        self.retry_backoff_seconds = float(retry_backoff_seconds)
+        if self.timeout_retries < 0:
+            raise ValueError("timeout_retries must be >= 0.")
+        if self.retry_backoff_seconds < 0:
+            raise ValueError("retry_backoff_seconds must be >= 0.")
         if not self.access_token:
             raise RuntimeError(
                 "DHAN_ACCESS_TOKEN is missing. Add it to the local .env file; "
@@ -124,16 +139,28 @@ class DhanClient:
             },
             method="POST",
         )
-        try:
-            with urlopen(request, timeout=self.timeout) as response:
-                raw = response.read().decode("utf-8")
-                status = response.status
-        except HTTPError as exc:
-            # Do not expose request headers or the access token.
-            body = exc.read().decode("utf-8", errors="replace")[:1500]
-            raise DhanAPIError(f"Dhan HTTP {exc.code}: {body}") from None
-        except URLError as exc:
-            raise DhanAPIError(f"Could not reach Dhan API: {exc.reason}") from None
+        attempts = self.timeout_retries + 1
+        for attempt in range(attempts):
+            try:
+                with urlopen(request, timeout=self.timeout) as response:
+                    raw = response.read().decode("utf-8")
+                    status = response.status
+                break
+            except TimeoutError as exc:
+                if attempt >= self.timeout_retries:
+                    raise DhanAPIError(
+                        f"Dhan API read timed out after {attempts} attempts."
+                    ) from None
+                if self.retry_backoff_seconds:
+                    time.sleep(self.retry_backoff_seconds * (attempt + 1))
+            except HTTPError as exc:
+                # Do not expose request headers or the access token.
+                body = exc.read().decode("utf-8", errors="replace")[:1500]
+                raise DhanAPIError(f"Dhan HTTP {exc.code}: {body}") from None
+            except URLError as exc:
+                raise DhanAPIError(f"Could not reach Dhan API: {exc.reason}") from None
+        else:
+            raise DhanAPIError("Dhan API request failed unexpectedly.")
 
         try:
             result = json.loads(raw)

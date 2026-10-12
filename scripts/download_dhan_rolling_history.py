@@ -184,9 +184,15 @@ def main() -> int:
         existing = manifest["requests"].get(request_id, {})
         response_path = response_dir / f"{request_id}.json"
         if existing.get("status") == "ok" and response_path.exists():
-            completed += 1
-            total_rows += int(existing.get("rows", 0))
-            continue
+            try:
+                saved_response = json.loads(response_path.read_text(encoding="utf-8"))
+                saved_quality = inspect_response(saved_response, task["option_type"])
+                if saved_quality["rows"] > 0 and not saved_quality["field_length_mismatches"]:
+                    completed += 1
+                    total_rows += int(saved_quality["rows"])
+                    continue
+            except (OSError, json.JSONDecodeError):
+                pass
         try:
             response = client.rolling_options(
                 from_date=task["from_date"], to_date=task["to_date"],

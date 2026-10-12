@@ -149,5 +149,27 @@ class DhanRollingDownloaderTests(unittest.TestCase):
         self.assertEqual(quality["field_length_mismatches"], {"close": 1})
 
 
+class DhanOfflineAuditTests(unittest.TestCase):
+    def test_flatten_response_preserves_ist_timestamp_and_actual_strike(self):
+        from scripts.audit_dhan_rolling_history import flatten_response
+        from datetime import datetime, timezone
+
+        timestamp = int(datetime(2026, 10, 8, 3, 45, tzinfo=timezone.utc).timestamp())
+        response = {"data": {"ce": {
+            "timestamp": [timestamp], "strike": [25000], "open": [100],
+            "high": [110], "low": [95], "close": [105], "oi": [1200],
+        }}}
+        task = {
+            "option_type": "CALL", "strike": "ATM+1", "expiry_flag": "WEEK",
+            "expiry_code": 1, "from_date": "2026-10-08", "to_date": "2026-10-09",
+        }
+        rows, quality = flatten_response(response, task, "test_request")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["date_ist"], "2026-10-08")
+        self.assertEqual(rows[0]["time_ist"], "09:15:00")
+        self.assertEqual(rows[0]["strike"], 25000)
+        self.assertEqual(quality["field_length_mismatches"], {})
+
+
 if __name__ == "__main__":
     unittest.main()

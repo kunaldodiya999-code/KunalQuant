@@ -164,23 +164,39 @@ def main() -> int:
     print("=" * 78)
     print(f"Target period : {START} to {END} (FYERS rejects today/future as range_to)")
     print(f"Resolution    : {args.resolution} minute")
-    print("Request budget: maximum 7 API calls; no DB writes or orders")
+    print("Request budget: maximum 8 API calls; no DB writes or orders")
     print("Step 1/3: discovering expiry dates...", flush=True)
-    expiry_response = client.expired_expiry_dates(UNDERLYING, START, END, "1")
-    expiry_dates = extract_dates(expiry_response)
-    audit["expiry_discovery"] = {
-        "status": expiry_response.get("s"),
-        "top_level_keys": sorted(expiry_response.keys()),
-        "data_keys": sorted(expiry_response.get("data", {}).keys()) if isinstance(expiry_response.get("data"), dict) else [],
-        "expiry_count_parsed": len(expiry_dates),
-        "first_expiries": expiry_dates[:5],
-        "last_expiries": expiry_dates[-5:],
-        "parsed_expiries": expiry_dates,
-        "response_sample": expiry_response if not expiry_dates else None,
-    }
-    if expiry_response.get("s") != "ok" or not expiry_dates:
-        audit["verdict"] = "BLOCKED: expiry discovery failed or response schema needs adapting."
-        return finish(audit, args.output, 2)
+    # FYERS limits expiry-date discovery to 366 days per request.
+    # Use two adjacent windows so we can validate both an older and recent expiry.
+    discovery_windows = [
+        (START, "2025-10-12"),
+        ("2025-10-13", END),
+    ]
+    expiry_dates: list[str] = []
+    audit["expiry_discovery"] = {"windows": [], "requests": len(discovery_windows)}
+    for range_from, range_to in discovery_windows:
+        response = client.expired_expiry_dates(UNDERLYING, range_from, range_to, "1")
+        dates = extract_dates(response)
+        audit["expiry_discovery"]["windows"].append({
+            "from": range_from,
+            "to": range_to,
+            "status": response.get("s"),
+            "top_level_keys": sorted(response.keys()),
+            "data_keys": sorted(response.get("data", {}).keys()) if isinstance(response.get("data"), dict) else [],
+            "expiry_count_parsed": len(dates),
+            "first_expiries": dates[:5],
+            "last_expiries": dates[-5:],
+            "response_sample": response if not dates else None,
+        })
+        if response.get("s") != "ok" or not dates:
+            audit["verdict"] = f"BLOCKED: expiry discovery failed for {range_from}..{range_to}."
+            return finish(audit, args.output, 2)
+        expiry_dates.extend(dates)
+    expiry_dates = sorted(set(expiry_dates))
+    audit["expiry_discovery"]["expiry_count_parsed"] = len(expiry_dates)
+    audit["expiry_discovery"]["first_expiries"] = expiry_dates[:5]
+    audit["expiry_discovery"]["last_expiries"] = expiry_dates[-5:]
+    audit["expiry_discovery"]["parsed_expiries"] = expiry_dates
 
     targets = [("old", args.old_target), ("recent", args.recent_target)]
     chosen: list[tuple[str, str]] = []

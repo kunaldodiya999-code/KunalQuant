@@ -15,7 +15,7 @@ Official Dhan docs describe `/charts/rollingoption` as rolling ATM-relative hist
 - Relative strikes: ATM-10 through ATM+10 (21 labels)
 - Sides: CALL and PUT
 - Chunks: 30 calendar days maximum; end date exclusive
-- Requests: approximately 13 chunks x 21 labels x 2 sides = 546 requests
+- Requests: approximately 13 chunks x 21 labels x 2 sides = 546 requests (actual chunk count is printed by the planner; calendar span controls it)
 - Delay: 0.30 seconds between requests by default, below the documented 5 data requests/second limit
 - Persistence: raw response per request plus a JSON manifest under ignored `data/raw/`
 - Resume: rerunning the exact same command skips completed response files and continues after interruption/token expiry
@@ -37,7 +37,7 @@ Run one small 2-day smoke test first:
 python scripts/download_dhan_rolling_history.py --from-date 2026-10-08 --to-date 2026-10-10 --interval 5 --execute
 ```
 
-Then run the offline normalizer/quality audit on the smoke-test run:
+Then run the offline normalizer/quality audit on the smoke-test run (this also writes a CSV of normalized rows):
 
 ```powershell
 python scripts/audit_dhan_rolling_history.py --run-dir data/raw/dhan_rolling_history/nifty_2026-10-08_2026-10-10_5m_WEEK_code1
@@ -49,7 +49,7 @@ Review `quality_report.json` and `normalized_rolling_history.csv` before startin
 python scripts/download_dhan_rolling_history.py --interval 5 --execute
 ```
 
-If the token expires or the run is interrupted, renew/update the local token in `.env` without sharing it, then rerun the exact same command. Successful request files are skipped.
+If the token expires or the run is interrupted, renew/update the local token in `.env` without sharing it, then rerun the exact same command. Completed responses are revalidated before being skipped. If a prior run stopped before manifest checkpointing, rerunning will re-fetch any unfinished request; raw response files are retained per request.
 
 ## Important interpretation limits
 

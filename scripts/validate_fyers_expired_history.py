@@ -45,34 +45,53 @@ def walk(value: Any):
 
 def extract_dates(response: dict[str, Any]) -> list[str]:
     found: set[str] = set()
-    for item in walk(response):
-        for key, value in item.items():
-            if key.lower() in {"expiry_date", "expirydate", "date", "expiry"} and isinstance(value, str):
-                match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", value)
-                if match:
-                    try:
-                        found.add(date.fromisoformat(match.group(1)).isoformat())
-                    except ValueError:
-                        pass
+
+    def collect(value: Any, expiry_context: bool = False) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                collect(child, expiry_context or "expiry" in key.lower())
+        elif isinstance(value, list):
+            for child in value:
+                collect(child, expiry_context)
+        elif expiry_context and isinstance(value, str):
+            match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", value)
+            if match:
+                try:
+                    found.add(date.fromisoformat(match.group(1)).isoformat())
+                except ValueError:
+                    pass
+
+    collect(response)
     return sorted(found)
 
 
 def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
-    for item in walk(response):
-        symbol = next((str(item[k]) for k in ("symbol", "trading_symbol", "tradingSymbol", "name")
-                       if isinstance(item.get(k), str) and re.search(r"(CE|PE)$", str(item[k]))), None)
-        if not symbol:
-            continue
-        match = re.search(r"(\d+(?:\.\d+)?)(CE|PE)$", symbol)
-        if not match:
-            continue
-        side = match.group(2)
-        try:
-            strike = float(item.get("strike", item.get("strike_price", item.get("strikePrice", match.group(1)))))
-        except (ValueError, TypeError):
-            strike = float(match.group(1))
-        found[symbol] = {"symbol": symbol, "strike": strike, "side": side}
+
+    def collect(value: Any) -> None:
+        if isinstance(value, dict):
+            symbol = next((str(value[k]) for k in ("symbol", "trading_symbol", "tradingSymbol", "name")
+                           if isinstance(value.get(k), str) and re.search(r"(CE|PE)$", str(value[k]))), None)
+            if symbol:
+                match = re.search(r"(\d+(?:\.\d+)?)(CE|PE)$", symbol)
+                if match:
+                    side = match.group(2)
+                    try:
+                        strike = float(value.get("strike", value.get("strike_price", value.get("strikePrice", match.group(1)))))
+                    except (ValueError, TypeError):
+                        strike = float(match.group(1))
+                    found[symbol] = {"symbol": symbol, "strike": strike, "side": side}
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+        elif isinstance(value, str) and re.search(r"(CE|PE)$", value):
+            match = re.search(r"(\d+(?:\.\d+)?)(CE|PE)$", value)
+            if match:
+                found[value] = {"symbol": value, "strike": float(match.group(1)), "side": match.group(2)}
+
+    collect(response)
     return sorted(found.values(), key=lambda c: (c["side"], c["strike"], c["symbol"]))
 
 
@@ -114,7 +133,7 @@ def summarize_history(response: dict[str, Any]) -> dict[str, Any]:
         "first_timestamp_utc": dt[0] if dt else None,
         "last_timestamp_utc": dt[-1] if dt else None,
         "distinct_candle_widths": sorted(set(widths)),
-        "greek_or_iv_key_visible": any(word in key_text for word in greek_words),
+        "greek_or_iv_key_visible": any(word in key_text for word in greek_words) or any(width >= 10 for width in widths),
         "oi_key_visible": any(word in key_text for word in oi_words),
         "sample_candle": candles[0] if candles else None,
         "raw_error": response.get("error") if response.get("s") == "error" else None,

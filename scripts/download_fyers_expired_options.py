@@ -4,15 +4,6 @@ This acquisition layer preserves exact expired-contract identity. It does not al
 strategy, contract-resolution, risk, execution, or accounting logic.
 
 Default mode is PLAN ONLY. Add --execute to call FYERS.
-
-Important:
-- Expiry discovery is split into <=366-day windows.
-- Contract catalogs preserve the full FYERS contract list for each expiry.
-- No strike universe is silently imposed. Optional strike/side filters are explicit.
-- Raw FYERS responses are preserved.
-- Normalized candles use the response's named column mapping.
-- Missing IV/Greeks remain None; they are never forward-filled or fabricated.
-- The manifest is resumable and prevents accidental reuse with a different plan.
 """
 from __future__ import annotations
 
@@ -34,18 +25,8 @@ from api.fyers_client import FyersClient  # noqa: E402
 
 UNDERLYING = "NSE:NIFTY50-INDEX"
 REQUIRED_COLUMNS = (
-    "timestamp",
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "open_interest",
-    "implied_volatility",
-    "delta",
-    "gamma",
-    "theta",
-    "vega",
+    "timestamp", "open", "high", "low", "close", "volume",
+    "open_interest", "implied_volatility", "delta", "gamma", "theta", "vega",
 )
 EXPIRY_WINDOW_DAYS = 365
 DEFAULT_RESOLUTION = "5"
@@ -121,7 +102,6 @@ def _parse_symbol(symbol: str) -> tuple[float | None, str | None]:
 
 def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
-
     for value in _walk(response):
         if not isinstance(value, dict):
             continue
@@ -144,7 +124,6 @@ def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             continue
         found[symbol] = {"symbol": symbol, "strike": strike, "side": side}
-
     return sorted(found.values(), key=lambda x: (x["strike"], x["symbol"]))
 
 
@@ -153,11 +132,15 @@ def select_contracts(
     strike_min: float | None,
     strike_max: float | None,
     side: str | None,
+    symbols: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     if strike_min is not None and strike_max is not None and strike_min > strike_max:
         raise ValueError("strike-min cannot be greater than strike-max.")
+    symbol_set = set(symbols) if symbols else None
     selected = []
     for contract in contracts:
+        if symbol_set is not None and contract["symbol"] not in symbol_set:
+            continue
         if strike_min is not None and contract["strike"] < strike_min:
             continue
         if strike_max is not None and contract["strike"] > strike_max:
@@ -205,11 +188,7 @@ def validate_response_shape(response: dict[str, Any]) -> None:
             )
 
 
-def normalize_candles(
-    response: dict[str, Any],
-    contract: dict[str, Any],
-    expiry_date: str,
-) -> list[dict[str, Any]]:
+def normalize_candles(response: dict[str, Any], contract: dict[str, Any], expiry_date: str) -> list[dict[str, Any]]:
     validate_response_shape(response)
     columns = response_columns(response)
     rows = []
@@ -243,11 +222,8 @@ def inspect_quality(response: dict[str, Any]) -> dict[str, Any]:
     duplicates = sum(1 for a, b in zip(timestamps, timestamps[1:]) if a == b)
     non_monotonic = sum(1 for a, b in zip(timestamps, timestamps[1:]) if b <= a and b != a)
     return {
-        "rows": len(candles),
-        "columns": columns,
-        "distinct_widths": sorted(set(widths)),
-        "invalid_rows": invalid_rows,
-        "duplicate_timestamps": duplicates,
+        "rows": len(candles), "columns": columns, "distinct_widths": sorted(set(widths)),
+        "invalid_rows": invalid_rows, "duplicate_timestamps": duplicates,
         "non_monotonic_timestamps": non_monotonic,
         "first_timestamp": min(timestamps) if timestamps else None,
         "last_timestamp": max(timestamps) if timestamps else None,
@@ -282,6 +258,7 @@ def main() -> int:
     parser.add_argument("--strike-min", type=float)
     parser.add_argument("--strike-max", type=float)
     parser.add_argument("--side", choices=("CE", "PE"))
+    parser.add_argument("--symbol", action="append", help="Exact FYERS option symbol; repeat for multiple contracts.")
     parser.add_argument("--delay", type=float, default=0.30)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "data" / "raw" / "fyers_expired_options")
     parser.add_argument("--execute", action="store_true", help="Actually call FYERS; without this, only prints the plan.")
@@ -299,6 +276,7 @@ def main() -> int:
         "strike_min": args.strike_min,
         "strike_max": args.strike_max,
         "side": args.side,
+        "symbols": args.symbol,
     }
 
     print("=" * 80)
@@ -319,8 +297,6 @@ def main() -> int:
         print("Add --execute to run/resume the acquisition.")
         return 0
 
-    from api.fyers_client import FyersClient  # noqa: E402
-
     client = FyersClient()
     run_name = f"nifty_{args.from_date}_{args.to_date_exclusive}_{args.resolution}m"
     run_dir = args.output_dir / run_name
@@ -334,29 +310,19 @@ def main() -> int:
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         expected_config = {
-            "from_date": args.from_date,
-            "to_date_exclusive": args.to_date_exclusive,
-            "resolution": args.resolution,
-            "filter": filter_config,
-            "underlying": UNDERLYING,
+            "from_date": args.from_date, "to_date_exclusive": args.to_date_exclusive,
+            "resolution": args.resolution, "filter": filter_config, "underlying": UNDERLYING,
         }
         if manifest.get("configuration") != expected_config:
             raise RuntimeError("Existing manifest configuration differs; use a new output directory.")
     else:
         manifest = {
             "configuration": {
-                "from_date": args.from_date,
-                "to_date_exclusive": args.to_date_exclusive,
-                "resolution": args.resolution,
-                "filter": filter_config,
-                "underlying": UNDERLYING,
+                "from_date": args.from_date, "to_date_exclusive": args.to_date_exclusive,
+                "resolution": args.resolution, "filter": filter_config, "underlying": UNDERLYING,
             },
-            "read_only": True,
-            "database_writes": False,
-            "orders_placed": False,
-            "expiry_discovery": {},
-            "contracts": {},
-            "history_requests": {},
+            "read_only": True, "database_writes": False, "orders_placed": False,
+            "expiry_discovery": {}, "contracts": {}, "history_requests": {},
         }
         write_json(manifest_path, manifest)
 
@@ -375,9 +341,7 @@ def main() -> int:
                 write_json(response_path, response)
                 dates = extract_expiry_dates(response)
                 manifest["expiry_discovery"][key] = {
-                    "from": range_from,
-                    "to": range_to,
-                    "dates": dates,
+                    "from": range_from, "to": range_to, "dates": dates,
                     "response_file": str(response_path.relative_to(run_dir)),
                 }
                 write_json(manifest_path, manifest)
@@ -401,21 +365,15 @@ def main() -> int:
             write_json(catalog_response_path, response)
             contracts = extract_contracts(response)
             manifest["contracts"][expiry_date] = {
-                "contract_count": len(contracts),
-                "contracts": contracts,
+                "contract_count": len(contracts), "contracts": contracts,
                 "response_file": str(catalog_response_path.relative_to(run_dir)),
             }
             write_json(manifest_path, manifest)
 
-        selected = select_contracts(
-            contracts, args.strike_min, args.strike_max, args.side
-        )
+        selected = select_contracts(contracts, args.strike_min, args.strike_max, args.side, args.symbol)
         total_catalog_contracts += len(contracts)
         total_selected_contracts += len(selected)
-        print(
-            f"Expiry {expiry_index}/{len(expiry_dates)} {expiry_date}: "
-            f"{len(contracts)} contracts; {len(selected)} selected"
-        )
+        print(f"Expiry {expiry_index}/{len(expiry_dates)} {expiry_date}: {len(contracts)} contracts; {len(selected)} selected")
 
         for contract_index, contract in enumerate(selected, 1):
             symbol = contract["symbol"]
@@ -431,23 +389,15 @@ def main() -> int:
 
             try:
                 response = client.expired_history(
-                    symbol=symbol,
-                    resolution=args.resolution,
-                    range_from=args.from_date,
-                    range_to=expiry_date,
-                    include_oi="1",
-                    include_greeks="1",
-                    date_format="1",
+                    symbol=symbol, resolution=args.resolution, range_from=args.from_date,
+                    range_to=expiry_date, include_oi="1", include_greeks="1", date_format="1",
                 )
                 quality = inspect_quality(response)
                 validate_response_shape(response)
                 rows = normalize_candles(response, contract, expiry_date)
             except Exception as exc:
                 manifest["history_requests"][key] = {
-                    "status": "error",
-                    "symbol": symbol,
-                    "expiry_date": expiry_date,
-                    "error": str(exc),
+                    "status": "error", "symbol": symbol, "expiry_date": expiry_date, "error": str(exc),
                 }
                 write_json(manifest_path, manifest)
                 print(f"STOPPED at {expiry_date} {symbol}: {exc}")
@@ -457,29 +407,21 @@ def main() -> int:
             write_json(raw_path, response)
             write_jsonl(normalized_path, rows)
             manifest["history_requests"][key] = {
-                "status": "ok",
-                "symbol": symbol,
-                "expiry_date": expiry_date,
-                "rows": len(rows),
-                "quality": quality,
-                "raw_response": str(raw_path.relative_to(run_dir)),
+                "status": "ok", "symbol": symbol, "expiry_date": expiry_date, "rows": len(rows),
+                "quality": quality, "raw_response": str(raw_path.relative_to(run_dir)),
                 "normalized": str(normalized_path.relative_to(run_dir)),
             }
             write_json(manifest_path, manifest)
             total_history_requests += 1
 
             if contract_index == 1 or contract_index % 25 == 0 or contract_index == len(selected):
-                print(
-                    f"  history {contract_index}/{len(selected)}: "
-                    f"{symbol} -> {len(rows)} candles"
-                )
+                print(f"  history {contract_index}/{len(selected)}: {symbol} -> {len(rows)} candles")
             if args.delay > 0:
                 time.sleep(args.delay)
 
     manifest["finished"] = True
     manifest["summary"] = {
-        "expiries": len(expiry_dates),
-        "catalog_contracts": total_catalog_contracts,
+        "expiries": len(expiry_dates), "catalog_contracts": total_catalog_contracts,
         "selected_contracts": total_selected_contracts,
         "history_requests_completed_this_run": total_history_requests,
     }

@@ -11,9 +11,11 @@ import hashlib
 import json
 import sys
 import time
-from datetime import date
+from collections import Counter
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -46,8 +48,13 @@ def summarize(result: dict[str, Any], option_type: str) -> dict[str, Any]:
         rows.append(row)
     canonical = json.dumps(rows, sort_keys=True, separators=(",", ":"), default=str).encode()
     strikes = [r["strike"] for r in rows if r.get("strike") is not None]
+    session_counts = Counter(
+        datetime.fromtimestamp(int(ts), ZoneInfo("Asia/Kolkata")).date().isoformat()
+        for ts in timestamps
+    )
     return {
         "rows": len(rows),
+        "session_date_counts_IST": dict(sorted(session_counts.items())),
         "fingerprint_sha256": hashlib.sha256(canonical).hexdigest(),
         "first_timestamp": timestamps[0] if timestamps else None,
         "last_timestamp": timestamps[-1] if timestamps else None,
@@ -127,6 +134,8 @@ def main() -> int:
     out_path = out_dir / f"expiry_mapping_boundary_{args.expiry_flag}_{args.strike}_{args.option_type}.json"
     out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"\nReport saved: {out_path.relative_to(PROJECT_ROOT)}")
+    print("DATE-COVERAGE CHECK: compare returned IST dates with each requested one-day window;")
+    print("if the end date appears, endpoint behavior differs from the documented exclusive end.")
     print("LIMITATION: fingerprints show response differences, not the exact expiry date.")
     return 1 if failures else 0
 

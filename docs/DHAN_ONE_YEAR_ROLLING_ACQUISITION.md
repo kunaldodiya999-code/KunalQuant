@@ -37,7 +37,13 @@ Run one small 2-day smoke test first:
 python scripts/download_dhan_rolling_history.py --from-date 2026-10-08 --to-date 2026-10-10 --interval 5 --execute
 ```
 
-Then inspect the manifest and raw responses before starting the year. If valid, start the year:
+Then run the offline normalizer/quality audit on the smoke-test run:
+
+```powershell
+python scripts/audit_dhan_rolling_history.py --run-dir data/raw/dhan_rolling_history/nifty_2026-10-08_2026-10-10_5m_WEEK_code1
+```
+
+Review `quality_report.json` and `normalized_rolling_history.csv` before starting the year. If the smoke test looks structurally sound, start the year:
 
 ```powershell
 python scripts/download_dhan_rolling_history.py --interval 5 --execute

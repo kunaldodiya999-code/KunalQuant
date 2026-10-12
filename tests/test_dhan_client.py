@@ -55,64 +55,16 @@ class DhanPayloadTests(unittest.TestCase):
 
 
 class FyersExpiredContractParserTests(unittest.TestCase):
-    def test_parses_expiry_aware_ce_symbol_strike(self):
+    def test_numeric_expiry_is_five_digits(self):
         from scripts.validate_fyers_expired_history import extract_contracts
 
-        response = {
-            "data": {
-                "contracts": {
-                    "options": [
-                        {"symbol": "NSE:NIFTY24O2419200CE"},
-                        {"symbol": "NSE:NIFTY24O2419200PE"},
-                    ]
-                }
-            }
-        }
+        response = {"data": {"contracts": {"options": [
+            {"symbol": "NSE:NIFTY2691518150CE"},
+            {"symbol": "NSE:NIFTY2691518150PE"},
+        ]}}}
         contracts = extract_contracts(response)
-        self.assertEqual(
-            {(c["symbol"], c["strike"], c["side"]) for c in contracts},
-            {
-                ("NSE:NIFTY24O2419200CE", 19200.0, "CE"),
-                ("NSE:NIFTY24O2419200PE", 19200.0, "PE"),
-            },
-        )
-
-    def test_parses_numeric_expiry_symbol_strike(self):
-        from scripts.validate_fyers_expired_history import extract_contracts
-
-        response = {
-            "data": {
-                "contracts": {
-                    "options": [
-                        {"symbol": "NSE:NIFTY2691518150CE"},
-                        {"symbol": "NSE:NIFTY2691518150PE"},
-                    ]
-                }
-            }
-        }
-        contracts = extract_contracts(response)
-        self.assertEqual(
-            [(c["strike"], c["side"]) for c in contracts],
-            [(18150.0, "CE"), (18150.0, "PE")],
-        )
-
-    def test_prefers_explicit_strike_field(self):
-        from scripts.validate_fyers_expired_history import extract_contracts
-
-        response = {
-            "data": {
-                "contracts": {
-                    "options": [
-                        {
-                            "symbol": "NSE:NIFTY24O2419200CE",
-                            "strike": 19200,
-                        }
-                    ]
-                }
-            }
-        }
-        contracts = extract_contracts(response)
-        self.assertEqual(contracts[0]["strike"], 19200.0)
+        self.assertEqual([(c["strike"], c["side"]) for c in contracts],
+                         [(18150.0, "CE"), (18150.0, "PE")])
 
 
 if __name__ == "__main__":

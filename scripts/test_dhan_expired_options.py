@@ -34,7 +34,7 @@ def main() -> int:
     parser.add_argument("--from-date", default=default_from, help="YYYY-MM-DD, inclusive")
     parser.add_argument("--to-date", default=default_to, help="YYYY-MM-DD, exclusive")
     parser.add_argument("--expiry-flag", choices=["WEEK", "MONTH"], default="WEEK")
-    parser.add_argument("--expiry-code", type=int, choices=[0, 1, 2], default=0)
+    parser.add_argument("--expiry-code", type=int, choices=[1, 2, 3], default=1)
     parser.add_argument("--strike", default="ATM", help="ATM or ATM+/-1..10")
     parser.add_argument("--option-type", choices=["CALL", "PUT"], default="CALL")
     parser.add_argument("--interval", choices=["1", "5", "15", "25", "60"], default="1")
@@ -45,7 +45,7 @@ def main() -> int:
     print("=" * 68)
     print("Mode          : read-only; one API request; no database writes")
     print(f"Date range    : {args.from_date} to {args.to_date} (to-date exclusive)")
-    print(f"Expiry        : {args.expiry_flag}, code={args.expiry_code}")
+    print(f"Expiry        : {args.expiry_flag}, code={args.expiry_code} (1=near, 2=next, 3=far)")
     print(f"Strike/type   : {args.strike} / {args.option_type}")
     print(f"Interval      : {args.interval} minute(s)")
 

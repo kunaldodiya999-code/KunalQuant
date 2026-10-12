@@ -174,6 +174,7 @@ def main() -> int:
         "requests_with_saved_response": sum(1 for x in response_checks if x["status"] == "read"),
         "missing_or_incomplete_requests": [x for x in response_checks if x["status"] != "read"],
         "requests_with_field_length_mismatches": [x for x in response_checks if x.get("field_length_mismatches")],
+        "empty_or_missing_option_blocks": [x for x in response_checks if x.get("rows", 0) == 0 or not x.get("block_present", True)],
         "raw_normalized_rows": len(all_rows),
         "unique_timestamp_actual_strike_side_rows": len(merged),
         "duplicate_groups_collapsed": sum(1 for v in grouped.values() if len(v) > 1),
@@ -202,13 +203,14 @@ def main() -> int:
     report_path = run_dir / "quality_report.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("DHAN ROLLING HISTORY OFFLINE AUDIT")
-    print(f"Requests with saved responses: {report['requests_with_saved_response']}/{len(requests)}")
+    print(f"Requests with saved responses: {report['requests_with_saved_response']}/{report['planned_requests']}")
+    print(f"Empty/missing option blocks: {len(report['empty_or_missing_option_blocks'])}")
     print(f"Raw rows: {len(all_rows)}; unique timestamp+actual strike+side: {len(merged)}")
     print(f"Duplicate groups: {report['duplicate_groups_collapsed']}; conflicting groups: {len(conflict_groups)}")
     print(f"Sessions with missing expected 5m starts: {report['sessions_with_missing_5m_starts']}")
     print(f"Normalized CSV: {csv_path}")
     print(f"Quality report: {report_path}")
-    incomplete = bool(report["missing_or_incomplete_requests"] or report["request_ids_missing_from_manifest"])
+    incomplete = bool(report["missing_or_incomplete_requests"] or report["request_ids_missing_from_manifest"] or report["empty_or_missing_option_blocks"])
     return 0 if not incomplete else 2
 
 

@@ -11,7 +11,7 @@ class DhanPayloadTests(unittest.TestCase):
             from_date="2026-10-06",
             to_date="2026-10-07",
             expiry_flag="WEEK",
-            expiry_code=0,
+            expiry_code=1,
             strike="ATM",
             option_type="CALL",
         )
@@ -19,8 +19,21 @@ class DhanPayloadTests(unittest.TestCase):
         self.assertEqual(payload["securityId"], 13)
         self.assertEqual(payload["instrument"], "OPTIDX")
         self.assertEqual(payload["drvOptionType"], "CALL")
+        self.assertEqual(payload["expiryCode"], 1)
         self.assertIn("oi", payload["requiredData"])
         self.assertIn("strike", payload["requiredData"])
+
+    def test_accepts_far_expiry_code_3(self):
+        payload = build_rolling_options_payload(
+            from_date="2026-10-06", to_date="2026-10-07", expiry_code=3
+        )
+        self.assertEqual(payload["expiryCode"], 3)
+
+    def test_rejects_expiry_code_0(self):
+        with self.assertRaisesRegex(ValueError, "1, 2, or 3"):
+            build_rolling_options_payload(
+                from_date="2026-10-06", to_date="2026-10-07", expiry_code=0
+            )
 
     def test_rejects_more_than_30_days(self):
         with self.assertRaisesRegex(ValueError, "30 calendar days"):

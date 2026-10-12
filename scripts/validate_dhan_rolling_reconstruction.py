@@ -66,8 +66,8 @@ def main() -> int:
     parser.add_argument("--from-date", default=default_from, help="YYYY-MM-DD inclusive")
     parser.add_argument("--to-date", default=default_to, help="YYYY-MM-DD exclusive")
     parser.add_argument("--expiry-flag", choices=["WEEK", "MONTH"], default="WEEK")
-    parser.add_argument("--expiry-code", type=int, choices=[0, 1, 2], default=1,
-                        help="0=current/near, 1=next, 2=far; default 1 because code 0 previously returned DH-905")
+    parser.add_argument("--expiry-code", type=int, choices=[1, 2, 3], default=1,
+                        help="1=near, 2=next, 3=far; endpoint-specific mapping; default 1")
     parser.add_argument("--option-type", choices=["CALL", "PUT"], default="CALL")
     parser.add_argument("--delay", type=float, default=0.25, help="Seconds between requests (default 0.25)")
     args = parser.parse_args()

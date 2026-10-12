@@ -97,9 +97,17 @@ def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
             for child in value:
                 collect(child)
         elif isinstance(value, str) and re.search(r"(CE|PE)$", value):
-            match = re.search(r"(\d+(?:\.\d+)?)(CE|PE)$", value)
-            if match:
-                found[value] = {"symbol": value, "strike": float(match.group(1)), "side": match.group(2)}
+            side_match = re.search(r"(CE|PE)$", value)
+            strike_match = re.search(
+                r"NIFTY\\d{2}(?:[A-Z]\\d{2}|\\d{4})(\\d+)(?:CE|PE)$",
+                value,
+            )
+            if side_match and strike_match:
+                found[value] = {
+                    "symbol": value,
+                    "strike": float(strike_match.group(1)),
+                    "side": side_match.group(1),
+                }
 
     collect(response)
     return sorted(found.values(), key=lambda c: (c["side"], c["strike"], c["symbol"]))

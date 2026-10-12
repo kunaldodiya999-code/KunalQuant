@@ -54,6 +54,40 @@ class DhanPayloadTests(unittest.TestCase):
             )
 
 
+class DhanTimeoutRetryTests(unittest.TestCase):
+    def test_rolling_options_retries_read_timeout(self):
+        from unittest.mock import patch
+        from api import dhan_client
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_value, traceback):
+                return False
+
+            def read(self):
+                return b'{"data": {"ce": {"timestamp": [1]}}}'
+
+        client = dhan_client.DhanClient(
+            access_token="test-token",
+            timeout=0.1,
+            timeout_retries=2,
+            retry_backoff_seconds=0,
+        )
+        with patch.object(dhan_client, "urlopen", side_effect=[TimeoutError(), TimeoutError(), FakeResponse()]) as mock_urlopen:
+            result = client.rolling_options(
+                from_date="2026-10-08",
+                to_date="2026-10-09",
+                interval="5",
+            )
+
+        self.assertEqual(result["data"]["ce"]["timestamp"], [1])
+        self.assertEqual(mock_urlopen.call_count, 3)
+
+
 class FyersExpiredContractParserTests(unittest.TestCase):
     def test_numeric_expiry_is_five_digits(self):
         from scripts.validate_fyers_expired_history import extract_contracts

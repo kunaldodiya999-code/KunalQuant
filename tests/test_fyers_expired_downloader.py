@@ -17,8 +17,8 @@ class FyersExpiredDownloaderTests(unittest.TestCase):
             [(x["symbol"], x["strike"], x["side"]) for x in contracts],
             [
                 ("NSE:NIFTY2691525000CE", 25000.0, "CE"),
-                ("NSE:NIFTY2691525050CE", 25050.0, "CE"),
                 ("NSE:NIFTY2691525000PE", 25000.0, "PE"),
+                ("NSE:NIFTY2691525050CE", 25050.0, "CE"),
             ],
         )
 

@@ -49,7 +49,7 @@ Review `quality_report.json` and `normalized_rolling_history.csv` before startin
 python scripts/download_dhan_rolling_history.py --interval 5 --execute
 ```
 
-If the token expires or the run is interrupted, renew/update the local token in `.env` without sharing it, then rerun the exact same command. Completed responses are revalidated before being skipped. If a prior run stopped before manifest checkpointing, rerunning will re-fetch any unfinished request; raw response files are retained per request.
+If the token expires or the run is interrupted, renew/update the local token in `.env` without sharing it, then rerun the exact same command. Saved response files are revalidated before being skipped. Valid raw response files left behind before a manifest checkpoint are recovered without re-fetching.
 
 ## Important interpretation limits
 

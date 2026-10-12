@@ -199,6 +199,11 @@ def response_columns(response: dict[str, Any]) -> list[str]:
     return []
 
 
+def is_no_data_response(response: dict[str, Any]) -> bool:
+    """Return True when FYERS explicitly reports that no candles exist."""
+    return isinstance(response, dict) and response.get("s") == "no_data"
+
+
 def validate_response_shape(response: dict[str, Any]) -> None:
     if response.get("s") != "ok":
         raise ValueError(f"FYERS response is not successful: {response.get('s')!r}")
@@ -382,6 +387,7 @@ def main() -> int:
     total_catalog_contracts = 0
     total_selected_contracts = 0
     total_history_requests = 0
+    total_no_data = 0
     for expiry_index, expiry_date in enumerate(expiry_dates, 1):
         catalog_response_path = catalog_dir / f"contracts_{expiry_date}.json"
         cached_catalog = manifest["contracts"].get(expiry_date)
@@ -419,6 +425,19 @@ def main() -> int:
                     symbol=symbol, resolution=args.resolution, range_from=args.from_date,
                     range_to=expiry_date, include_oi="1", include_greeks="1", date_format="1",
                 )
+                if is_no_data_response(response):
+                    write_json(raw_path, response)
+                    manifest["history_requests"][key] = {
+                        "status": "no_data", "symbol": symbol, "expiry_date": expiry_date,
+                        "raw_response": str(raw_path.relative_to(run_dir)),
+                    }
+                    write_json(manifest_path, manifest)
+                    total_no_data += 1
+                    total_history_requests += 1
+                    print(f"  no_data {contract_index}/{len(selected)}: {symbol}")
+                    if args.delay > 0:
+                        time.sleep(args.delay)
+                    continue
                 quality = inspect_quality(response)
                 validate_response_shape(response)
                 rows = normalize_candles(response, contract, expiry_date)
@@ -451,6 +470,7 @@ def main() -> int:
         "expiries": len(expiry_dates), "catalog_contracts": total_catalog_contracts,
         "selected_contracts": total_selected_contracts,
         "history_requests_completed_this_run": total_history_requests,
+        "history_requests_no_data": total_no_data,
     }
     write_json(manifest_path, manifest)
     print("-" * 80)
@@ -459,6 +479,7 @@ def main() -> int:
     print(f"Catalog contracts: {total_catalog_contracts}")
     print(f"Selected contracts: {total_selected_contracts}")
     print(f"History requests completed/reused: {total_history_requests}")
+    print(f"History requests with no_data: {total_no_data}")
     print(f"Run directory: {run_dir}")
     print("No database writes or orders were performed.")
     return 0

@@ -145,7 +145,7 @@ def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         found[symbol] = {"symbol": symbol, "strike": strike, "side": side}
 
-    return sorted(found.values(), key=lambda x: (x["strike"], x["side"], x["symbol"]))
+    return sorted(found.values(), key=lambda x: (x["strike"], x["symbol"]))
 
 
 def select_contracts(

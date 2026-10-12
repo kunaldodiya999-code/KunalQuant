@@ -141,6 +141,19 @@ def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(found.values(), key=lambda x: (x["strike"], x["symbol"]))
 
 
+def cached_catalog_is_valid(cached_catalog: Any, catalog_response_path: Path) -> bool:
+    """Return True only when a cached catalog contains a non-empty contract set."""
+    if not isinstance(cached_catalog, dict) or not catalog_response_path.exists():
+        return False
+    contracts = cached_catalog.get("contracts")
+    contract_count = cached_catalog.get("contract_count")
+    if not isinstance(contracts, list) or not contracts:
+        return False
+    if not isinstance(contract_count, int) or contract_count <= 0:
+        return False
+    return len(contracts) == contract_count
+
+
 def select_contracts(
     contracts: list[dict[str, Any]],
     strike_min: float | None,
@@ -372,7 +385,7 @@ def main() -> int:
     for expiry_index, expiry_date in enumerate(expiry_dates, 1):
         catalog_response_path = catalog_dir / f"contracts_{expiry_date}.json"
         cached_catalog = manifest["contracts"].get(expiry_date)
-        if cached_catalog and catalog_response_path.exists():
+        if cached_catalog_is_valid(cached_catalog, catalog_response_path):
             contracts = cached_catalog["contracts"]
         else:
             response = client.expired_contracts(UNDERLYING, expiry_date)

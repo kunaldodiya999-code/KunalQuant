@@ -47,7 +47,7 @@ def build_rolling_options_payload(
     from_date: str,
     to_date: str,
     expiry_flag: str = "WEEK",
-    expiry_code: int = 0,
+    expiry_code: int = 1,
     strike: str = "ATM",
     option_type: str = "CALL",
     interval: str = "1",
@@ -63,8 +63,10 @@ def build_rolling_options_payload(
 
     if expiry_flag not in {"WEEK", "MONTH"}:
         raise ValueError("expiry_flag must be WEEK or MONTH.")
-    if expiry_code not in {0, 1, 2}:
-        raise ValueError("expiry_code must be 0, 1, or 2.")
+    # For /charts/rollingoption, Dhan support documents endpoint-specific mapping:
+    # 1 = near expiry, 2 = next expiry, 3 = far expiry. Code 0 returns DH-905.
+    if expiry_code not in {1, 2, 3}:
+        raise ValueError("expiry_code must be 1, 2, or 3 for rolling/expired options.")
     if option_type not in {"CALL", "PUT"}:
         raise ValueError("option_type must be CALL or PUT.")
     if interval not in ALLOWED_INTERVALS:

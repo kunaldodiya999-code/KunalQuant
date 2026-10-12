@@ -26,6 +26,7 @@ ALLOWED_INTERVALS = {"1", "5", "15", "25", "60"}
 ALLOWED_DATA = {"open", "high", "low", "close", "iv", "volume", "strike", "oi", "spot"}
 DEFAULT_TIMEOUT_RETRIES = 2
 RETRY_BACKOFF_SECONDS = 1.0
+TRANSIENT_HTTP_CODES = {502, 503, 504}
 
 
 class DhanAPIError(RuntimeError):
@@ -146,7 +147,7 @@ class DhanClient:
                     raw = response.read().decode("utf-8")
                     status = response.status
                 break
-            except TimeoutError as exc:
+            except TimeoutError:
                 if attempt >= self.timeout_retries:
                     raise DhanAPIError(
                         f"Dhan API read timed out after {attempts} attempts."
@@ -156,6 +157,10 @@ class DhanClient:
             except HTTPError as exc:
                 # Do not expose request headers or the access token.
                 body = exc.read().decode("utf-8", errors="replace")[:1500]
+                if exc.code in TRANSIENT_HTTP_CODES and attempt < self.timeout_retries:
+                    if self.retry_backoff_seconds:
+                        time.sleep(self.retry_backoff_seconds * (attempt + 1))
+                    continue
                 raise DhanAPIError(f"Dhan HTTP {exc.code}: {body}") from None
             except URLError as exc:
                 raise DhanAPIError(f"Could not reach Dhan API: {exc.reason}") from None

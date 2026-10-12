@@ -68,6 +68,42 @@ class FyersExpiredDownloaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "required columns"):
             validate_response_shape(bad)
 
+    def test_cached_catalog_is_invalid_when_empty(self):
+        from pathlib import Path
+        from scripts.download_fyers_expired_options import cached_catalog_is_valid
+
+        response_path = Path("cached-contracts.json")
+        response_path.write_text("{}", encoding="utf-8")
+        try:
+            self.assertFalse(cached_catalog_is_valid({
+                "contract_count": 0,
+                "contracts": [],
+            }, response_path))
+            self.assertFalse(cached_catalog_is_valid({
+                "contract_count": 1,
+                "contracts": [],
+            }, response_path))
+        finally:
+            response_path.unlink()
+
+    def test_cached_catalog_is_valid_when_non_empty_and_consistent(self):
+        from pathlib import Path
+        from scripts.download_fyers_expired_options import cached_catalog_is_valid
+
+        response_path = Path("cached-contracts.json")
+        response_path.write_text("{}", encoding="utf-8")
+        try:
+            self.assertTrue(cached_catalog_is_valid({
+                "contract_count": 1,
+                "contracts": [{"symbol": "NSE:NIFTY24O2424000CE"}],
+            }, response_path))
+            self.assertFalse(cached_catalog_is_valid({
+                "contract_count": 2,
+                "contracts": [{"symbol": "NSE:NIFTY24O2424000CE"}],
+            }, response_path))
+        finally:
+            response_path.unlink()
+
     def test_select_contracts_requires_explicit_filters(self):
         from scripts.download_fyers_expired_options import select_contracts
 

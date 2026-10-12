@@ -171,5 +171,25 @@ class DhanOfflineAuditTests(unittest.TestCase):
         self.assertEqual(quality["field_length_mismatches"], {})
 
 
+class DhanPlanOnlyTests(unittest.TestCase):
+    def test_plan_only_does_not_require_credentials_or_write_files(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from scripts.download_dhan_rolling_history import main
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"DHAN_ACCESS_TOKEN": ""}, clear=False):
+                with patch("sys.argv", [
+                    "download_dhan_rolling_history.py",
+                    "--from-date", "2026-10-08",
+                    "--to-date", "2026-10-10",
+                    "--output-dir", tmp,
+                ]):
+                    self.assertEqual(main(), 0)
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+
 if __name__ == "__main__":
     unittest.main()

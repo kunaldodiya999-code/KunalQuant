@@ -22,6 +22,27 @@ class FyersExpiredDownloaderTests(unittest.TestCase):
             ],
         )
 
+    def test_extract_contracts_from_bare_symbol_strings(self):
+        from scripts.download_fyers_expired_options import extract_contracts
+
+        response = {
+            "s": "ok",
+            "data": {
+                "contracts": [
+                    "NSE:NIFTY24O2424000CE",
+                    "NSE:NIFTY24O2424000PE",
+                ]
+            },
+        }
+        contracts = extract_contracts(response)
+        self.assertEqual(
+            [(x["symbol"], x["strike"], x["side"]) for x in contracts],
+            [
+                ("NSE:NIFTY24O2424000CE", 24000.0, "CE"),
+                ("NSE:NIFTY24O2424000PE", 24000.0, "PE"),
+            ],
+        )
+
     def test_normalize_candles_uses_named_columns_and_preserves_missing_greeks(self):
         from scripts.download_fyers_expired_options import normalize_candles
 

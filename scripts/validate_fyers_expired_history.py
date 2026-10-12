@@ -81,7 +81,7 @@ def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
                         # FYERS symbols concatenate expiry and strike. A naive trailing-number
                         # regex incorrectly turns 19200 into 2419200.
                         strike_match = re.search(
-                            r"NIFTY\d{2}(?:[A-Z]\d{2}|\d{5})(\d+)(?:CE|PE)$",
+                            r"NIFTY(?:\d{2}[A-Z]\d{2}|\d{5})(\d+)(?:CE|PE)$",
                             symbol,
                         )
                         if strike_match:
@@ -100,7 +100,7 @@ def extract_contracts(response: dict[str, Any]) -> list[dict[str, Any]]:
         elif isinstance(value, str) and re.search(r"(CE|PE)$", value):
             side_match = re.search(r"(CE|PE)$", value)
             strike_match = re.search(
-                r"NIFTY\d{2}(?:[A-Z]\d{2}|\d{5})(\d+)(?:CE|PE)$",
+                r"NIFTY(?:\d{2}[A-Z]\d{2}|\d{5})(\d+)(?:CE|PE)$",
                 value,
             )
             if side_match and strike_match:

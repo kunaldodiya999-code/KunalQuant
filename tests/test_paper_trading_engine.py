@@ -144,5 +144,48 @@ class PaperTradingEngineTests(unittest.TestCase):
             )
 
 
+    def test_duplicate_or_out_of_order_option_candle_is_rejected(self):
+        engine = PaperTradingEngine()
+        engine.open_position(
+            strategy_id=PaperStrategyId.STRATEGY_A,
+            direction="LONG",
+            symbol="NSE:NIFTY26000CE",
+            entry_price=100.0,
+            timestamp=100,
+        )
+        kwargs = dict(
+            strategy_id=PaperStrategyId.STRATEGY_A,
+            option_high=101.0,
+            option_low=99.0,
+            option_close=100.0,
+            underlying_close=25000.0,
+            kama_value=24900.0,
+        )
+        engine.process_option_candle(timestamp=160, **kwargs)
+        with self.assertRaises(ValueError):
+            engine.process_option_candle(timestamp=160, **kwargs)
+        with self.assertRaises(ValueError):
+            engine.process_option_candle(timestamp=150, **kwargs)
+
+    def test_entry_timestamp_candle_is_not_processed(self):
+        engine = PaperTradingEngine()
+        engine.open_position(
+            strategy_id=PaperStrategyId.STRATEGY_A,
+            direction="LONG",
+            symbol="NSE:NIFTY26000CE",
+            entry_price=100.0,
+            timestamp=100,
+        )
+        with self.assertRaises(ValueError):
+            engine.process_option_candle(
+                strategy_id=PaperStrategyId.STRATEGY_A,
+                timestamp=100,
+                option_high=101.0,
+                option_low=99.0,
+                option_close=100.0,
+                underlying_close=25000.0,
+                kama_value=24900.0,
+            )
+
 if __name__ == "__main__":
     unittest.main()

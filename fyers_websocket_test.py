@@ -66,7 +66,7 @@ def get_current_nifty_futures_symbol(now=None):
         except (KeyError, TypeError, ValueError, OSError, OverflowError):
             continue
 
-        if expiry.date() < now.date():
+        if expiry <= now:
             continue
 
         candidates.append((expiry, symbol, exchange_symbol))

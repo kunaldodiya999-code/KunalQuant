@@ -33,6 +33,32 @@ class LiveMinuteBarBuilderTests(unittest.TestCase):
         self.assertEqual((bar.open, bar.high, bar.low, bar.close), (100.0, 103.0, 100.0, 103.0))
         self.assertIsNone(bar.volume)
 
+    def test_accepts_actual_fyers_exchange_feed_time_packet(self):
+        # Shape observed in fyers_websocket_test.py:
+        # {'ltp': ..., 'exch_feed_time': ..., 'type': 'if',
+        #  'symbol': 'NSE:NIFTY50-INDEX'}
+        timestamp = 1_791_887_369
+        first = {
+            "ltp": 22721.95,
+            "exch_feed_time": timestamp,
+            "type": "if",
+            "symbol": "NSE:NIFTY50-INDEX",
+        }
+        self.assertEqual(self.builder.on_message(first), [])
+        current = self.builder.current_minute("NSE:NIFTY50-INDEX")
+        self.assertIsNotNone(current)
+        self.assertEqual(current.close, 22721.95)
+
+        next_tick = {
+            "ltp": 22722.0,
+            "exch_feed_time": timestamp + 60,
+            "type": "if",
+            "symbol": "NSE:NIFTY50-INDEX",
+        }
+        completed = self.builder.on_message(next_tick)
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0].close, 22721.95)
+
     def test_keeps_separate_bars_per_symbol(self):
         self.builder.on_message(self.tick("NSE:NIFTY50-INDEX", 1_760_000_401, 100))
         self.builder.on_message(self.tick("NSE:OTHER", 1_760_000_401, 200))

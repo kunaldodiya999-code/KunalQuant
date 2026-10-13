@@ -58,6 +58,44 @@ class PaperMarketDataPipelineTests(unittest.TestCase):
         self.assertEqual(bar.resolution, "3")
         self.assertEqual(bar.actual_1m_candles, 3)
 
+    def test_five_minute_resolution_sends_only_complete_derived_bars(self):
+        pipeline = PaperMarketDataPipeline(
+            resolution_minutes=5, signal_evaluator=self.evaluator
+        )
+        start = self.ts(9, 15)
+        for minute in range(5):
+            pipeline.on_message(self.tick(start + minute * 60, 100 + minute))
+
+        self.assertEqual(self.evaluated, [])
+        pipeline.on_message(self.tick(start + 5 * 60, 105))
+
+        self.assertEqual(len(self.evaluated), 1)
+        bar = self.evaluated[0][0]
+        self.assertTrue(bar.complete)
+        self.assertEqual(bar.resolution, "5")
+        self.assertEqual(bar.actual_1m_candles, 5)
+        self.assertEqual(bar.timestamp, start)
+
+    def test_missing_minute_does_not_emit_incomplete_derived_bar(self):
+        pipeline = PaperMarketDataPipeline(
+            resolution_minutes=3, signal_evaluator=self.evaluator
+        )
+        start = self.ts(9, 15)
+
+        # Minute 09:17 is intentionally absent. No synthetic candle is created.
+        for offset in (0, 60, 180, 240, 300):
+            pipeline.on_message(self.tick(start + offset, 100 + offset // 60))
+
+        self.assertEqual(self.evaluated, [])
+
+        # The later, separate 09:18-09:20 bucket is complete and can be emitted.
+        pipeline.on_message(self.tick(start + 360, 106))
+        self.assertEqual(len(self.evaluated), 1)
+        bar = self.evaluated[0][0]
+        self.assertTrue(bar.complete)
+        self.assertEqual(bar.timestamp, start + 180)
+        self.assertEqual(bar.actual_1m_candles, 3)
+
     def test_rejects_unsupported_resolution(self):
         with self.assertRaises(ValueError):
             PaperMarketDataPipeline(resolution_minutes=2)

@@ -71,6 +71,38 @@ class PaperMarketDataPipelineTests(unittest.TestCase):
         pipeline.on_message(self.tick(after_close + 60, 101))
         self.assertEqual(self.evaluated, [])
 
+    def test_actual_fyers_exchange_feed_packet_flows_through_pipeline(self):
+        pipeline = PaperMarketDataPipeline(
+            resolution_minutes=1, signal_evaluator=self.evaluator
+        )
+        start = self.ts(9, 15)
+
+        first_tick = {
+            "ltp": 100.0,
+            "exch_feed_time": start + 5,
+            "type": "if",
+            "symbol": "NSE:NIFTY50-INDEX",
+        }
+        next_minute_tick = {
+            "ltp": 102.0,
+            "exch_feed_time": start + 65,
+            "type": "if",
+            "symbol": "NSE:NIFTY50-INDEX",
+        }
+
+        self.assertEqual(pipeline.on_message(first_tick), [])
+        self.assertEqual(self.evaluated, [])
+
+        pipeline.on_message(next_minute_tick)
+
+        self.assertEqual(len(self.evaluated), 1)
+        bar = self.evaluated[0][0]
+        self.assertEqual(bar.timestamp, start)
+        self.assertEqual(
+            (bar.open, bar.high, bar.low, bar.close),
+            (100.0, 100.0, 100.0, 100.0),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

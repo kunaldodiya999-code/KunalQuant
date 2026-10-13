@@ -53,6 +53,7 @@ class PaperTradeRecord:
     entry_timestamp: int
     position: OptionTradePosition
     exits: list[OptionTradeExit] = field(default_factory=list)
+    last_processed_timestamp: Optional[int] = None
 
     @property
     def closed(self) -> bool:
@@ -128,6 +129,7 @@ class PaperTradingEngine:
             strategy_id=strategy,
             entry_timestamp=int(timestamp),
             position=position,
+            last_processed_timestamp=int(timestamp),
         )
         self.trade_logs[strategy].append(record)
         self.active_positions[strategy] = record
@@ -150,9 +152,15 @@ class PaperTradingEngine:
         if record is None or record.closed:
             return []
 
+        candle_timestamp = int(timestamp)
+        if record.last_processed_timestamp is not None and candle_timestamp <= record.last_processed_timestamp:
+            raise ValueError(
+                "Option candle timestamps must be strictly increasing and later than entry."
+            )
+
         exits = self.lifecycle.process_candle(
             position=record.position,
-            timestamp=int(timestamp),
+            timestamp=candle_timestamp,
             option_high=float(option_high),
             option_low=float(option_low),
             option_close=float(option_close),
@@ -160,6 +168,7 @@ class PaperTradingEngine:
             kama_value=kama_value,
         )
         record.exits.extend(exits)
+        record.last_processed_timestamp = candle_timestamp
         return exits
 
     def open_trade(self, strategy_id: PaperStrategyId | str | Enum) -> Optional[PaperTradeRecord]:

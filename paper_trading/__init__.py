@@ -7,6 +7,7 @@ from paper_trading.engine import (
     PaperTradeRecord,
     PaperTradingEngine,
 )
+from paper_trading.recorder import PaperTradeRecorder
 
 __all__ = [
     "PaperSignal",
@@ -15,4 +16,5 @@ __all__ = [
     "PaperStrategyId",
     "PaperTradeRecord",
     "PaperTradingEngine",
+    "PaperTradeRecorder",
 ]

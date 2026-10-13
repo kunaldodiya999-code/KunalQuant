@@ -24,9 +24,10 @@ class _OpenMinute:
 class LiveMinuteBarBuilder:
     """Build completed 1-minute OHLC candles from FYERS SymbolUpdate messages.
 
-    Exchange timestamps are preferred. Messages without a usable timestamp or
-    finite positive LTP are ignored. The caller receives a candle only after a
-    later minute arrives; the still-forming candle is never emitted.
+    Exchange timestamps are preferred. FYERS packet variants may expose
+    last_traded_time, timestamp, or exch_feed_time. Messages without a usable
+    timestamp or finite positive LTP are ignored. The caller receives a candle
+    only after a later minute arrives; the still-forming candle is never emitted.
     """
 
     def __init__(self) -> None:
@@ -34,11 +35,13 @@ class LiveMinuteBarBuilder:
 
     @staticmethod
     def _timestamp_seconds(message: Mapping[str, Any]) -> int | None:
-        # FYERS SymbolUpdate commonly exposes last_traded_time. Some SDK/API
-        # payloads expose timestamp instead, so accept it as a fallback.
+        # Prefer trade time where supplied. The existing WebSocket test confirms
+        # that index feed packets can instead contain exch_feed_time only.
         raw = message.get("last_traded_time")
         if raw in (None, "", 0, "0"):
             raw = message.get("timestamp")
+        if raw in (None, "", 0, "0"):
+            raw = message.get("exch_feed_time")
         try:
             value = float(raw)
         except (TypeError, ValueError):

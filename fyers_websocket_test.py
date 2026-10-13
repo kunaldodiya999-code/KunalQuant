@@ -1,5 +1,10 @@
 import os
+import re
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import requests
 from dotenv import load_dotenv
 from fyers_apiv3.FyersWebsocket import data_ws
 
@@ -22,12 +27,79 @@ if not APP_ID:
 if not ACCESS_TOKEN:
     raise RuntimeError("FYERS access token missing")
 
-
 FULL_ACCESS_TOKEN = f"{APP_ID}:{ACCESS_TOKEN}"
 
+SYMBOL_MASTER_URL = "https://public.fyers.in/sym_details/NSE_FO_sym_master.json"
+INDIA_TZ = ZoneInfo("Asia/Kolkata")
+# Match standard NIFTY monthly futures only. This excludes BANKNIFTY,
+# FINNIFTY, NIFTYNXT50, NIFTYFPI and options.
+NIFTY_FUTURES_PATTERN = re.compile(r"^NIFTY\d{2}[A-Z]{3}FUT$")
+
+
+def get_current_nifty_futures_symbol(now=None):
+    """Resolve the active front-month NIFTY futures symbol from FYERS master.
+
+    Prefer a contract expiring in the current calendar month. Once that
+    contract has expired, roll forward to the nearest unexpired standard
+    NIFTY futures contract. Never fall back to a hardcoded symbol.
+    """
+    now = now or datetime.now(INDIA_TZ)
+    response = requests.get(SYMBOL_MASTER_URL, timeout=30)
+    response.raise_for_status()
+    master = response.json()
+
+    if not isinstance(master, dict):
+        raise RuntimeError("Unexpected FYERS symbol-master response format")
+
+    candidates = []
+    for symbol, details in master.items():
+        if not isinstance(details, dict):
+            continue
+
+        exchange_symbol = str(details.get("exSymName", "")).strip().upper()
+        if not NIFTY_FUTURES_PATTERN.fullmatch(exchange_symbol):
+            continue
+
+        try:
+            expiry_epoch = int(details["expiryDate"])
+            expiry = datetime.fromtimestamp(expiry_epoch, INDIA_TZ)
+        except (KeyError, TypeError, ValueError, OSError, OverflowError):
+            continue
+
+        if expiry.date() < now.date():
+            continue
+
+        candidates.append((expiry, symbol, exchange_symbol))
+
+    if not candidates:
+        raise RuntimeError(
+            "No unexpired standard NIFTY futures contract found in FYERS symbol master"
+        )
+
+    current_month = [
+        candidate
+        for candidate in candidates
+        if candidate[0].year == now.year and candidate[0].month == now.month
+    ]
+
+    if current_month:
+        expiry, symbol, exchange_symbol = min(current_month, key=lambda item: item[0])
+        print(f"Selected current-month NIFTY futures: {exchange_symbol} (expiry {expiry:%d %b %Y})")
+    else:
+        expiry, symbol, exchange_symbol = min(candidates, key=lambda item: item[0])
+        print(
+            "Current-month NIFTY futures is no longer available; "
+            f"rolling to nearest unexpired contract: {exchange_symbol} "
+            f"(expiry {expiry:%d %b %Y})"
+        )
+
+    return symbol
+
+
+FUTURES_SYMBOL = get_current_nifty_futures_symbol()
 SYMBOLS = [
     "NSE:NIFTY50-INDEX",
-    "NSE:NIFTY26SEPFUT",
+    FUTURES_SYMBOL,
 ]
 
 

@@ -18,6 +18,7 @@ from backtest.option_trade_lifecycle import (
     OptionTradeLifecycleConfig,
     OptionTradePosition,
 )
+from paper_trading.recorder import PaperTradeRecorder
 
 
 class PaperStrategyId(str, Enum):
@@ -73,8 +74,14 @@ class PaperTradingEngine:
     This class never creates a broker client or submits an order.
     """
 
-    def __init__(self, config: Optional[PaperEngineConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[PaperEngineConfig] = None,
+        *,
+        recorder: PaperTradeRecorder | None = None,
+    ) -> None:
         self.config = config or PaperEngineConfig()
+        self.recorder = recorder
         self.lifecycle = OptionTradeLifecycle(self.config.lifecycle_config)
         self.trade_logs: dict[PaperStrategyId, list[PaperTradeRecord]] = {
             strategy_id: [] for strategy_id in PaperStrategyId
@@ -131,6 +138,10 @@ class PaperTradingEngine:
             position=position,
             last_processed_timestamp=int(timestamp),
         )
+        # Persist the entry before exposing it as an accepted paper position.
+        # A disk error therefore fails visibly instead of silently losing the entry.
+        if self.recorder is not None:
+            self.recorder.record_trade_open(record)
         self.trade_logs[strategy].append(record)
         self.active_positions[strategy] = record
         return record
@@ -169,6 +180,9 @@ class PaperTradingEngine:
         )
         record.exits.extend(exits)
         record.last_processed_timestamp = candle_timestamp
+        if self.recorder is not None:
+            for exit_event in exits:
+                self.recorder.record_trade_exit(record, exit_event)
         return exits
 
     def open_trade(self, strategy_id: PaperStrategyId | str | Enum) -> Optional[PaperTradeRecord]:

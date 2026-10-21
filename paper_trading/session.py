@@ -6,7 +6,7 @@ by the caller after checking the selected contract specification.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -23,6 +23,7 @@ from paper_trading.market_data_pipeline import PaperMarketDataPipeline
 from paper_trading.pending_entry_orchestrator import PendingEntryConfig, PendingEntryOrchestrator
 from paper_trading.recorder import PaperTradeRecorder
 from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
+from paper_trading.settings import PaperTradingSettings
 from strategies.option_contract_resolver import OptionContractResolver
 
 
@@ -80,6 +81,7 @@ class PaperSessionConfig:
     partial_exit_enabled: bool = True
     single_lot_partial_mode: str = "close_all"
     entry_cutoff: str = "15:00"
+    settings_path: str | Path | None = None
     target_enabled: bool = True
 
     def __post_init__(self) -> None:
@@ -119,7 +121,25 @@ def build_paper_session(
     engine_config: PaperEngineConfig | None = None,
     socket_factory: Callable[..., Any] | None = None,
 ) -> PaperSession:
-    """Wire all paper entry components without connecting the market-data socket."""
+    """Wire all paper entry components without connecting the market-data socket.
+
+    When settings_path is supplied, validated saved settings override paper-risk
+    defaults for this session build. The locked historical V1 lifecycle is not used
+    or modified by these settings.
+    """
+    if config.settings_path is not None:
+        saved = PaperTradingSettings.load(config.settings_path)
+        config = replace(
+            config,
+            allocation=saved.allocation_amount,
+            stop_loss_pct=saved.stop_loss_pct / 100.0,
+            target_rr=saved.partial_trigger_r,
+            partial_exit_fraction=saved.partial_exit_pct / 100.0,
+            partial_exit_enabled=saved.partial_exit_enabled,
+            single_lot_partial_mode=saved.single_lot_partial_mode,
+            entry_cutoff=saved.entry_cutoff,
+            target_enabled=saved.partial_exit_enabled,
+        )
     recorder = PaperTradeRecorder(config.output_dir)
     quote_cache = FyersQuoteCache()
     if resolver is None:

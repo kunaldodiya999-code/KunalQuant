@@ -96,6 +96,8 @@ class PaperControlService:
                             strategy = payload.get("strategy_id")
                             stop = payload.get("stop_loss")
                             settings = PaperTradingSettings.load(service.settings_path)
+                            if not settings.trailing_stop_enabled:
+                                raise ValueError("Manual trailing-stop controls are disabled in settings.")
                             trade = service.session.engine.update_manual_stop(
                                 strategy_id=strategy,
                                 stop_loss=float(stop),

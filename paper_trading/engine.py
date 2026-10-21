@@ -321,3 +321,8 @@ class PaperTradingEngine:
             for strategy in PaperStrategyId
             for trade in self.trade_logs[strategy]
         )
+
+
+# Runtime paper sessions use the durable adapter. The underlying engine and
+# locked historical lifecycle remain unchanged; the adapter only snapshots state.
+from paper_trading.durable_engine import DurablePaperTradingEngine as PaperTradingEngine

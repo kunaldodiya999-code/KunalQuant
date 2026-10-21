@@ -92,13 +92,18 @@ class BuyerOptionTradeLifecycle:
     def process_candle(
         self, *, position: OptionTradePosition, timestamp: int,
         option_high: float, option_low: float, option_close: float,
-        underlying_close: float, kama_value: Optional[float],
+        underlying_close: Optional[float], kama_value: Optional[float],
     ) -> list[OptionTradeExit]:
         if position.closed:
             return []
-        values = (option_high, option_low, option_close, underlying_close)
+        values = (option_high, option_low, option_close)
         if not all(isfinite(float(v)) for v in values):
-            raise ValueError("Candle prices must be finite")
+            raise ValueError("Option candle prices must be finite")
+        # Underlying close is needed only when a KAMA exit is enabled.
+        if kama_value is not None and (
+            underlying_close is None or not isfinite(float(underlying_close))
+        ):
+            raise ValueError("A finite underlying close is required for KAMA exits")
         if min(option_high, option_low, option_close) <= 0 or option_low > option_high:
             raise ValueError("Invalid option candle prices")
 

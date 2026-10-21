@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 import threading
@@ -201,4 +202,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    exit_code = main()
+    # FYERS SDK may leave a non-daemon WebSocket thread alive after close().
+    # This standalone diagnostic has already closed the socket and printed
+    # its summary; flush output and terminate only this script process so the
+    # user's terminal prompt is reliably returned.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(exit_code)

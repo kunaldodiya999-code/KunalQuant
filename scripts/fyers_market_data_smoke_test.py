@@ -141,7 +141,7 @@ def main() -> int:
                 on_error(f"Socket close failed: {exc}")
         time.sleep(0.5)
 
-    print("\\nSUMMARY")
+    print("\nSUMMARY")
     print(f"connected_callback_received={connected.is_set()}")
     print(f"elapsed_seconds={time.monotonic() - started_at:.1f}")
     print(f"messages_by_symbol={dict(counts)}")

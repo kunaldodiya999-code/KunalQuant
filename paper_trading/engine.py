@@ -160,7 +160,7 @@ class PaperTradingEngine:
         option_high: float,
         option_low: float,
         option_close: float,
-        underlying_close: float,
+        underlying_close: float | None,
         kama_value: Optional[float],
     ) -> list[OptionTradeExit]:
         """Advance only the selected strategy's position through lifecycle V1."""

@@ -81,9 +81,17 @@ class PaperTradingEngine:
         *,
         recorder: PaperTradeRecorder | None = None,
         lifecycle: object | None = None,
+        starting_capital: float | None = None,
+        allocation_pct: int | None = None,
     ) -> None:
         self.config = config or PaperEngineConfig()
         self.recorder = recorder
+        if starting_capital is not None and (not isfinite(starting_capital) or starting_capital <= 0):
+            raise ValueError("starting_capital must be finite and positive")
+        if allocation_pct is not None and not 1 <= allocation_pct <= 100:
+            raise ValueError("allocation_pct must be between 1 and 100")
+        self.starting_capital = starting_capital
+        self.allocation_pct = allocation_pct
         # Default remains the locked V1 lifecycle. Buyer-only paper behaviour
         # must be explicitly injected; historical V1 is never rewritten.
         self.lifecycle = (
@@ -110,6 +118,19 @@ class PaperTradingEngine:
             return OptionTradeDirection(str(raw).upper())
         except ValueError as exc:
             raise ValueError(f"Unsupported trade direction: {raw}") from exc
+
+    def available_cash(self) -> float | None:
+        """Cash basis: starting capital + realized P&L - open-position entry cost."""
+        if self.starting_capital is None:
+            return None
+        realized = sum(
+            event.pnl for trade in self.all_trades() for event in trade.exits
+        )
+        open_entry_cost = sum(
+            trade.position.entry_price * trade.position.remaining_quantity
+            for trade in self.all_trades() if not trade.closed
+        )
+        return self.starting_capital + realized - open_entry_cost
 
     def open_position(
         self,
@@ -139,6 +160,21 @@ class PaperTradingEngine:
             symbol=symbol,
             entry_price=entry_price,
         )
+        if self.starting_capital is not None and self.allocation_pct is not None:
+            cash = self.available_cash()
+            assert cash is not None
+            budget = max(0.0, cash) * self.allocation_pct / 100.0
+            lot_size = int(getattr(getattr(self.lifecycle, "config", None), "lot_size", 0))
+            if lot_size < 1:
+                raise ValueError("Capital allocation requires a valid configured lot size.")
+            allowed_lots = int(budget // (position.entry_price * lot_size))
+            if allowed_lots < 1:
+                raise ValueError("Available cash allocation cannot purchase one complete lot.")
+            if allowed_lots < position.lots:
+                position.lots = allowed_lots
+                position.quantity = allowed_lots * lot_size
+                position.remaining_lots = allowed_lots
+                position.remaining_quantity = position.quantity
         record = PaperTradeRecord(
             strategy_id=strategy,
             entry_timestamp=int(timestamp),

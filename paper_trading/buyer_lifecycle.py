@@ -29,6 +29,7 @@ class BuyerLifecycleConfig:
     target_rr: float = 3.0
     partial_exit_fraction: float = 0.50
     target_enabled: bool = True
+    partial_exit_enabled: bool = True
     single_lot_partial_mode: str = "close_all"
 
     def __post_init__(self) -> None:
@@ -137,7 +138,7 @@ class BuyerOptionTradeLifecycle:
             ))
             return exits
 
-        if (self.config.target_enabled and position.target is not None
+        if (self.config.target_enabled and self.config.partial_exit_enabled and position.target is not None
                 and not position.partial_exit_done
                 and option_high >= position.target):
             if not self.config.target_enabled:

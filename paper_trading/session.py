@@ -20,6 +20,7 @@ from market_data.resampling import Candle
 from paper_trading.buyer_lifecycle import BuyerLifecycleConfig, BuyerOptionTradeLifecycle
 from paper_trading.coordinator import PaperExecutionCoordinator
 from paper_trading.engine import PaperEngineConfig, PaperStrategyId, PaperTradingEngine
+from paper_trading.durable_engine import DurablePaperTradingEngine
 from paper_trading.entry_adapter import PaperEntryAdapter, PaperEntryAdapterConfig
 from paper_trading.fyers_feed import FyersPaperFeed
 from paper_trading.market_data_pipeline import PaperMarketDataPipeline
@@ -264,7 +265,7 @@ def build_paper_session(
             single_lot_partial_mode=config.single_lot_partial_mode,
         )
     )
-    engine = PaperTradingEngine(
+    engine = DurablePaperTradingEngine(
         config=engine_config,
         recorder=recorder,
         lifecycle=lifecycle,

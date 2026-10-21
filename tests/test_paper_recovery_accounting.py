@@ -93,7 +93,7 @@ def test_journal_without_snapshot_fails_closed(tmp_path):
     restarted, _ = _engine(tmp_path)
     with pytest.raises(PaperStateRecoveryError, match="snapshot is missing"):
         restarted.restore_state()
-    assert restarted.all_trades() == []
+    assert restarted.all_trades() == ()
 
 
 def test_snapshot_capital_mismatch_fails_closed(tmp_path):

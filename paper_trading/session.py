@@ -315,24 +315,28 @@ def build_paper_session(
                 quantity=position.quantity,
             )
 
-        # End-of-day liquidation is handled by the independent watchdog.\n                for candle in option_tick_builder.on_message(message):
-                    option_candle = OptionCandle(
-                        timestamp=candle.timestamp, open=candle.open,
-                        high=candle.high, low=candle.low, close=candle.close,
-                    )
+        # End-of-day liquidation is handled by the independent watchdog.
+        option_symbol = message.get("symbol") if isinstance(message, dict) else None
+        if not option_symbol:
+            return
+        for candle in option_tick_builder.on_message(message):
+            option_candle = OptionCandle(
+                timestamp=candle.timestamp, open=candle.open,
+                high=candle.high, low=candle.low, close=candle.close,
+            )
 
-                    # Shadow candidates are observational only; they never
-                    # control or close the active paper position.
-                    tsl_shadow.on_candle(
-                        symbol=option_symbol,
-                        candle=option_candle,
-                    )
+            # Shadow candidates are observational only; they never
+            # control or close the active paper position.
+            tsl_shadow.on_candle(
+                symbol=option_symbol,
+                candle=option_candle,
+            )
 
-                    # Advance active buyer-only positions independently
-                    # from the observational TSL shadow candidates.
-                    process_completed_option_candle(
-                        engine, symbol=option_symbol, candle=candle
-                    )
+            # Advance active buyer-only positions independently
+            # from the observational TSL shadow candidates.
+            process_completed_option_candle(
+                engine, symbol=option_symbol, candle=candle
+            )
 
     feed = FyersPaperFeed(
         client=client,

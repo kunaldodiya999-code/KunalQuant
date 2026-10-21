@@ -7,7 +7,9 @@ by the caller after checking the selected contract specification.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime, time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Any, Callable
 
 from api.fyers_client import FyersClient
@@ -81,6 +83,8 @@ class PaperSessionConfig:
     partial_exit_enabled: bool = True
     single_lot_partial_mode: str = "close_all"
     entry_cutoff: str = "15:00"
+    forced_exit_enabled: bool = True
+    forced_exit_time: str = "15:10"
     settings_path: str | Path | None = None
     target_enabled: bool = True
 
@@ -104,6 +108,7 @@ class PaperSession:
     orchestrator: PendingEntryOrchestrator
     recorder: PaperTradeRecorder
     tsl_shadow: TslShadowLab
+    alerts: list[str]
 
     def start(self) -> None:
         """Start market-data streaming only; no broker orders are submitted."""
@@ -138,6 +143,8 @@ def build_paper_session(
             partial_exit_enabled=saved.partial_exit_enabled,
             single_lot_partial_mode=saved.single_lot_partial_mode,
             entry_cutoff=saved.entry_cutoff,
+            forced_exit_enabled=saved.forced_exit_enabled,
+            forced_exit_time=saved.forced_exit_time,
             target_enabled=saved.partial_exit_enabled,
         )
     recorder = PaperTradeRecorder(config.output_dir)
@@ -181,6 +188,9 @@ def build_paper_session(
 
     # Late-bound callbacks resolve entry wiring and shadow exit tracking.
     holder: dict[str, PendingEntryOrchestrator] = {}
+    session_alerts: list[str] = []
+    market_tz = ZoneInfo("Asia/Kolkata")
+    forced_exit_clock = time.fromisoformat(config.forced_exit_time)
     tsl_shadow = TslShadowLab(Path(config.output_dir) / "tsl_shadow")
     option_tick_builder = LiveMinuteBarBuilder()
 
@@ -211,12 +221,35 @@ def build_paper_session(
                 quantity=position.quantity,
             )
 
-        # Only completed candles from option symbols may advance either the
-        # active paper lifecycle or the independent TSL shadow lab.
+        # At/after the forced-exit time, a fresh tick for an open option is the
+        # only permitted fill source. Missing/stale quotes alert and remain open.
         if isinstance(message, dict):
             symbol = message.get("symbol")
             if isinstance(symbol, str) and symbol.strip() != config.underlying_symbol:
                 option_symbol = symbol.strip()
+                if config.forced_exit_enabled and datetime.now(market_tz).time() >= forced_exit_clock:
+                    now_epoch = int(datetime.now(market_tz).timestamp())
+                    try:
+                        quote_price = float(message.get("lp", message.get("ltp", message.get("last_price"))))
+                        quote_timestamp = int(message.get("exch_feed_time", message.get("last_traded_time", message.get("timestamp"))))
+                        quote_age = now_epoch - quote_timestamp
+                        valid_quote = quote_price > 0 and 0 <= quote_age <= config.max_quote_age_seconds
+                    except (TypeError, ValueError):
+                        valid_quote = False
+                        quote_price = 0.0
+                    for strategy_id in PaperStrategyId:
+                        active = engine.open_trade(strategy_id)
+                        if active is None or active.position.symbol != option_symbol:
+                            continue
+                        if valid_quote:
+                            engine.force_exit_position(
+                                strategy_id=strategy_id, timestamp=now_epoch,
+                                fresh_option_price=quote_price,
+                            )
+                        else:
+                            alert = f"FORCED EXIT PENDING: {option_symbol} has missing/stale quote at/after {config.forced_exit_time} IST; position remains open."
+                            if not session_alerts or session_alerts[-1] != alert:
+                                session_alerts.append(alert)
                 for candle in option_tick_builder.on_message(message):
                     option_candle = OptionCandle(
                         timestamp=candle.timestamp, open=candle.open,
@@ -270,6 +303,7 @@ def build_paper_session(
         orchestrator=orchestrator,
         recorder=recorder,
         tsl_shadow=tsl_shadow,
+        alerts=session_alerts,
     )
 
 

@@ -69,6 +69,8 @@ def process_completed_option_candle(
 class PaperSessionConfig:
     lot_size: int
     allocation: float = 20_000.0
+    starting_capital: float = 100_000.0
+    allocation_pct: int = 20
     resolution_minutes: int = 3
     underlying_symbol: str = "NSE:NIFTY50-INDEX"
     database_path: str | Path | None = None
@@ -93,6 +95,10 @@ class PaperSessionConfig:
             raise ValueError("Supply the verified current contract lot size.")
         if self.allocation <= 0:
             raise ValueError("allocation must be positive.")
+        if self.starting_capital <= 0:
+            raise ValueError("starting_capital must be positive.")
+        if not 10 <= self.allocation_pct <= 100 or self.allocation_pct % 10:
+            raise ValueError("allocation_pct must be from 10 to 100 in 10% steps.")
         if self.resolution_minutes not in (1, 3, 5):
             raise ValueError("resolution_minutes must be 1, 3, or 5.")
 
@@ -137,6 +143,8 @@ def build_paper_session(
         config = replace(
             config,
             allocation=saved.allocation_amount,
+            starting_capital=saved.starting_capital,
+            allocation_pct=saved.allocation_pct,
             stop_loss_pct=saved.stop_loss_pct / 100.0,
             target_rr=saved.partial_trigger_r,
             partial_exit_fraction=saved.partial_exit_pct / 100.0,
@@ -175,6 +183,8 @@ def build_paper_session(
         config=engine_config,
         recorder=recorder,
         lifecycle=lifecycle,
+        starting_capital=config.starting_capital,
+        allocation_pct=config.allocation_pct,
     )
     adapter = PaperEntryAdapter(
         resolver=resolver,

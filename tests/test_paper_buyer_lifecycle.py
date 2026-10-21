@@ -78,3 +78,38 @@ class BuyerOptionTradeLifecycleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_single_lot_position_closes_fully_when_target_is_hit():
+    lifecycle = BuyerOptionTradeLifecycle(
+        BuyerLifecycleConfig(
+            allocation=12_500, lot_size=25, stop_loss_pct=0.20, target_rr=3
+        )
+    )
+    position = lifecycle.create_position(
+        strategy_id="A",
+        direction=OptionTradeDirection.LONG,
+        symbol="NSE:NIFTY2610025000CE",
+        entry_price=500,
+    )
+    assert position.lots == 1
+    assert position.target == 800
+
+    exits = lifecycle.process_candle(
+        position=position,
+        timestamp=300,
+        option_high=805,
+        option_low=501,
+        option_close=790,
+        underlying_close=None,
+        kama_value=None,
+    )
+
+    assert len(exits) == 1
+    assert exits[0].reason == OptionExitReason.TARGET_3R
+    assert exits[0].price == 800
+    assert exits[0].quantity == 25
+    assert exits[0].lots == 1
+    assert exits[0].remaining_quantity == 0
+    assert position.closed
+    assert position.gross_pnl == 7_500

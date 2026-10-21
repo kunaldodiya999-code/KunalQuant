@@ -77,6 +77,8 @@ class PaperSessionConfig:
     stop_loss_pct: float = 0.30
     target_rr: float = 2.0
     partial_exit_fraction: float = 0.50
+    partial_exit_enabled: bool = True
+    single_lot_partial_mode: str = "close_all"
     entry_cutoff: str = "15:00"
     target_enabled: bool = True
 
@@ -138,6 +140,8 @@ def build_paper_session(
             target_rr=config.target_rr,
             partial_exit_fraction=config.partial_exit_fraction,
             target_enabled=config.target_enabled,
+            partial_exit_enabled=config.partial_exit_enabled,
+            single_lot_partial_mode=config.single_lot_partial_mode,
         )
     )
     engine = PaperTradingEngine(

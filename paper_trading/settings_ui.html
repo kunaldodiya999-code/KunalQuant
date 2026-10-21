@@ -4,21 +4,26 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Kunal Quant · Paper Trading Controls</title>
 <style>
-:root{color-scheme:dark;--bg:#0b1020;--panel:#131b2e;--line:#29354c;--text:#e8eef9;--muted:#9eacc4;--accent:#8bb7ff;--good:#5fd6a0;--warn:#ffcc78}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,Segoe UI,sans-serif}
+:root{color-scheme:dark;--bg:#0b1020;--panel:#131b2e;--line:#29354c;--text:#e8eef9;--muted:#9eacc4;--accent:#8bb7ff;--good:#5fd6a0;--warn:#ffcc78;--input-bg:#0b1222;--input-line:#36435b;--button-muted:#29364d;--warning-bg:#2a2418;--warning-line:#735b35;--warning-text:#ffe1a7;--shadow:0 12px 32px rgba(0,0,0,.12)}
+:root[data-theme="light"]{color-scheme:light;--bg:#f3f6fb;--panel:#ffffff;--line:#d8e0ec;--text:#172338;--muted:#596981;--accent:#245fbd;--good:#08784d;--warn:#8a5200;--input-bg:#fff;--input-line:#bcc9db;--button-muted:#e4eaf3;--warning-bg:#fff5dd;--warning-line:#d8a746;--warning-text:#704700;--shadow:0 8px 24px rgba(32,53,84,.07)}
+@media(prefers-color-scheme:light){:root[data-theme="system"]{color-scheme:light;--bg:#f3f6fb;--panel:#fff;--line:#d8e0ec;--text:#172338;--muted:#596981;--accent:#245fbd;--good:#08784d;--warn:#8a5200;--input-bg:#fff;--input-line:#bcc9db;--button-muted:#e4eaf3;--warning-bg:#fff5dd;--warning-line:#d8a746;--warning-text:#704700;--shadow:0 8px 24px rgba(32,53,84,.07)}}
+:root[data-theme="system"]{color-scheme:dark}
+@media(prefers-color-scheme:light){:root[data-theme="system"]{color-scheme:light}}
+:root[data-theme="system"] body{color-scheme:light dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,Segoe UI,sans-serif;transition:background-color .15s ease,color .15s ease} .panel{box-shadow:var(--shadow)}
 main{max-width:1050px;margin:auto;padding:28px 18px 60px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
 h1{font-size:25px;margin:0}.sub{color:var(--muted);margin:5px 0 22px}.pill{border:1px solid var(--line);border-radius:99px;padding:5px 11px;color:var(--good);font-size:12px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:15px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:18px}
 h2{font-size:16px;margin:0 0 15px}.field{margin:13px 0}.field label{display:flex;justify-content:space-between;gap:12px;margin-bottom:6px}.hint{color:var(--muted);font-size:12px}
-input,select{background:#0b1222;color:var(--text);border:1px solid #36435b;border-radius:8px;padding:10px;width:100%;font:inherit}
+input,select{background:var(--input-bg);color:var(--text);border:1px solid var(--input-line);border-radius:8px;padding:10px;width:100%;font:inherit}
 input[type=range]{padding:0;accent-color:var(--accent)}.inline{display:flex;gap:10px;align-items:center}.inline>*{flex:1}.switch{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:13px 0}.switch input{width:auto;transform:scale(1.2)}
-.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}button{border:0;border-radius:9px;padding:11px 16px;background:var(--accent);color:#081225;font-weight:700;cursor:pointer}button.secondary{background:#29364d;color:var(--text)}
-.stat{font-size:24px;font-weight:700}.warning{border:1px solid #735b35;background:#2a2418;color:#ffe1a7;border-radius:10px;padding:12px;margin:15px 0}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}button{border:0;border-radius:9px;padding:11px 16px;background:var(--accent);color:#081225;font-weight:700;cursor:pointer}button.secondary{background:var(--button-muted);color:var(--text)}
+.stat{font-size:24px;font-weight:700}.warning{border:1px solid var(--warning-line);background:var(--warning-bg);color:var(--warning-text);border-radius:10px;padding:12px;margin:15px 0}
 .status{color:var(--good);min-height:24px;margin-top:10px}.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.bar .field{flex:1;min-width:140px}
 footer{margin-top:18px;color:var(--muted);font-size:12px}
 </style></head>
 <body><main>
-<div class="top"><h1>Kunal Quant <span style="color:var(--accent)">/ Paper Trading</span></h1><span class="pill">SIMULATION ONLY · NO BROKER ORDERS</span></div>
+<div class="top"><h1>Kunal Quant <span style="color:var(--accent)">/ Paper Trading</span></h1><div class="inline" style="max-width:390px"><label for="themeMode" style="white-space:nowrap">Appearance</label><select id="themeMode" aria-label="Appearance mode"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System (follow device)</option></select><span class="pill">PAPER ONLY</span></div></div>
 <p class="sub">Risk settings and session controls · India Standard Time (IST)</p>
 <div class="warning">Forced exit waits for a fresh valid quote. If data is stale or missing at 15:10, the position must remain visibly unresolved; never fabricate a fill.</div>
 <div class="grid">
@@ -63,7 +68,7 @@ footer{margin-top:18px;color:var(--muted);font-size:12px}
 </div><footer>Settings apply to new trades only. This page is a configuration interface, not an order terminal. No live orders are sent.</footer>
 </main>
 <script>
-const $=id=>document.getElementById(id), money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);
+const $=id=>document.getElementById(id), money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(n);\nconst THEME_KEY='kunalquant.appearance';\nfunction applyTheme(mode){const valid=['dark','light','system'].includes(mode)?mode:'dark';document.documentElement.dataset.theme=valid;$('themeMode').value=valid;try{localStorage.setItem(THEME_KEY,valid)}catch(_){/* Storage may be unavailable; current-page theme still works. */}}\n(function initTheme(){let saved='dark';try{saved=localStorage.getItem(THEME_KEY)||'dark'}catch(_){/* Default to dark if storage is unavailable. */}applyTheme(saved);$('themeMode').addEventListener('change',()=>applyTheme($('themeMode').value));})();
 function syncAlloc(source){let v=Number($(source).value);v=Math.max(10,Math.min(100,Math.round(v/10)*10));$('alloc').value=v;$('allocNum').value=v;$('liveAlloc').value=v;$('allocText').textContent=v+'%';$('allocationAmount').textContent=money(Number($('capital').value||0)*v/100);$('liveAmount').textContent=money(Number($('capital').value||0)*v/100)}
 $('alloc').addEventListener('input',()=>syncAlloc('alloc'));$('allocNum').addEventListener('change',()=>syncAlloc('allocNum'));$('liveAlloc').addEventListener('change',()=>syncAlloc('liveAlloc'));$('capital').addEventListener('input',()=>syncAlloc('alloc'));
 $('daily').addEventListener('change',()=> $('dailyAmt').disabled=!$('daily').checked);

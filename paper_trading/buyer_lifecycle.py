@@ -93,6 +93,20 @@ class BuyerOptionTradeLifecycle:
         # Both CE and PE positions are long option premium.
         return (exit_price - entry_price) * quantity
 
+    def process_candle_with_open(
+        self, *, position: OptionTradePosition, timestamp: int,
+        option_high: float, option_low: float, option_close: float,
+        underlying_close: Optional[float], kama_value: Optional[float],
+        option_open: float,
+    ) -> list[OptionTradeExit]:
+        """Paper-only entry point that applies conservative gap-aware stop fills."""
+        return self.process_candle(
+            position=position, timestamp=timestamp,
+            option_high=option_high, option_low=option_low,
+            option_close=option_close, underlying_close=underlying_close,
+            kama_value=kama_value, option_open=option_open,
+        )
+
     def process_candle(
         self, *, position: OptionTradePosition, timestamp: int,
         option_high: float, option_low: float, option_close: float,

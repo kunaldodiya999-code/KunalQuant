@@ -1,4 +1,4 @@
-import json
+import csv
 
 import pytest
 
@@ -57,8 +57,9 @@ def test_open_position_recovers_once_and_preserves_available_cash(tmp_path):
     assert restarted.available_cash() == pytest.approx(80_000)
 
     # Restoring is read-only: it must not append a duplicate ENTRY event.
-    with recorder.trades_path.open(encoding="utf-8") as handle:
-        assert sum(1 for line in handle if line.startswith("ENTRY,")) == 1
+    with recorder.trades_path.open(newline="", encoding="utf-8") as handle:
+        events = list(csv.DictReader(handle))
+    assert sum(1 for event in events if event["event_type"] == "ENTRY") == 1
 
 
 def test_corrupt_snapshot_fails_closed(tmp_path):
@@ -75,7 +76,7 @@ def test_corrupt_snapshot_fails_closed(tmp_path):
     restarted, _ = _engine(tmp_path)
     with pytest.raises(PaperStateRecoveryError, match="Could not safely restore"):
         restarted.restore_state()
-    assert restarted.all_trades() == []
+    assert restarted.all_trades() == ()
 
 
 def test_journal_without_snapshot_fails_closed(tmp_path):

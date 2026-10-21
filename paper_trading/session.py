@@ -13,6 +13,7 @@ from typing import Any, Callable
 from api.fyers_client import FyersClient
 from market_data.fyers_quote_cache import FyersQuoteCache
 from market_data.live_ticks import LiveMinuteBarBuilder
+from market_data.resampling import Candle
 from paper_trading.buyer_lifecycle import BuyerLifecycleConfig, BuyerOptionTradeLifecycle
 from paper_trading.coordinator import PaperExecutionCoordinator
 from paper_trading.engine import PaperEngineConfig, PaperStrategyId, PaperTradingEngine
@@ -23,6 +24,42 @@ from paper_trading.pending_entry_orchestrator import PendingEntryConfig, Pending
 from paper_trading.recorder import PaperTradeRecorder
 from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
 from strategies.option_contract_resolver import OptionContractResolver
+
+
+def process_completed_option_candle(
+    engine: PaperTradingEngine,
+    *,
+    symbol: str,
+    candle: Candle,
+) -> None:
+    """Advance matching active paper trades from one completed option candle.
+
+    Candle timestamps are bucket starts. A candle that started at or before
+    the entry quote timestamp is excluded because part of its price range may
+    predate the simulated entry. Repeated/out-of-order candles are ignored.
+    KAMA exits remain disabled in this integration milestone.
+    """
+    for strategy_id in PaperStrategyId:
+        trade = engine.open_trade(strategy_id)
+        if trade is None or trade.position.symbol != symbol:
+            continue
+        if candle.timestamp <= trade.entry_timestamp:
+            continue
+        if (
+            trade.last_processed_timestamp is not None
+            and candle.timestamp <= trade.last_processed_timestamp
+        ):
+            continue
+
+        engine.process_option_candle(
+            strategy_id=strategy_id,
+            timestamp=candle.timestamp,
+            option_high=candle.high,
+            option_low=candle.low,
+            option_close=candle.close,
+            underlying_close=None,
+            kama_value=None,
+        )
 
 
 @dataclass(frozen=True)
@@ -164,32 +201,11 @@ def build_paper_session(
                         candle=option_candle,
                     )
 
-                    # Advance the active buyer-only lifecycle using completed
-                    # option candles. A candle whose bucket began at/before the
-                    # entry quote time contains pre-entry prices and is skipped.
-                    for strategy_id in PaperStrategyId:
-                        trade = engine.open_trade(strategy_id)
-                        if trade is None or trade.position.symbol != option_symbol:
-                            continue
-                        if candle.timestamp <= trade.entry_timestamp:
-                            continue
-                        if (
-                            trade.last_processed_timestamp is not None
-                            and candle.timestamp <= trade.last_processed_timestamp
-                        ):
-                            continue
-
-                        engine.process_option_candle(
-                            strategy_id=strategy_id,
-                            timestamp=candle.timestamp,
-                            option_high=candle.high,
-                            option_low=candle.low,
-                            option_close=candle.close,
-                            # KAMA exits are deliberately disabled in this
-                            # milestone, so no underlying close is required.
-                            underlying_close=None,
-                            kama_value=None,
-                        )
+                    # Advance active buyer-only positions independently
+                    # from the observational TSL shadow candidates.
+                    process_completed_option_candle(
+                        engine, symbol=option_symbol, candle=candle
+                    )
 
     feed = FyersPaperFeed(
         client=client,
@@ -228,4 +244,4 @@ def build_paper_session(
     )
 
 
-__all__ = ["PaperSession", "PaperSessionConfig", "build_paper_session"]
+__all__ = ["PaperSession", "PaperSessionConfig", "build_paper_session", "process_completed_option_candle"]

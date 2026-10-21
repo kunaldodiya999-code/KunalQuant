@@ -16,14 +16,14 @@ Scope: `feature/paper-buyer-engine-port`. This review covers the current paper-t
 
 ## Open blockers before relying on a full-session paper run
 
-### P0 — Restart recovery and reconciliation are incomplete
-The engine's active positions, partial exits, last processed candle timestamps, and realized P&L remain in-memory state. Restarting can lose active state while the append-only journal still contains ENTRY/EXIT events. Implement durable state restoration and reconciliation before unattended runs.
+### P0 — Durable restart recovery implemented; runtime verification required
+A versioned atomic `paper_state.json` snapshot now stores all trades, open/closed state, remaining quantity/lots, partial-exit history, current stop (including manual adjustments), realized P&L, and the last processed timestamp. The durable engine restores this snapshot before the session starts its feed and checks trade identities and exit-event counts/P&L against the append-only CSV journal. Missing snapshots with an existing trade journal, malformed snapshots, duplicate identities, and detected journal conflicts fail closed rather than starting an empty engine. Snapshot persistence follows entry, every processed candle (including candles without exits), manual stop changes, and forced exits. Focused restart/corruption tests were added; run them and the full suite in the target environment before treating this blocker as closed. Crash windows between journal and snapshot writes intentionally require manual reconciliation rather than guessed recovery.
 
 ### P0 — Watchdog/control integration needs runtime verification
 The independent watchdog and local HTTP API have been added but have not yet been executed by a test run in this development step. Verify watchdog timing, repeated retries, close-vs-candle concurrency, server lifecycle, and browser/API behavior. A fresh quote is mandatory; the system must never fabricate a fill.
 
-### P1 — Paper gap-aware stop fills added; runtime regression pending
-The buyer-only paper lifecycle now receives candle open through the session integration. When an option candle opens below the stop, the simulated fill uses the worse opening premium; an intrabar stop touch without a gap still fills at the configured stop. Regression tests were added, but must be run in the target environment before this gate is considered verified.
+### P1 — Paper gap-aware stop fills
+The buyer-only paper lifecycle receives candle open through the session integration. When an option candle opens below the stop, the simulated fill uses the worse opening premium; an intrabar stop touch without a gap still fills at the configured stop. Regression tests have been added; rerun them with the full suite in the target environment.
 
 ### P1 — Daily loss cutoff is not enforced
 Daily loss cutoff remains disabled per user instruction. The UI validates and persists its configuration, but enabling it is not enforced by the engine. Do not enable it until enforcement and tests exist.

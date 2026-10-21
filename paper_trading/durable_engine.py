@@ -25,8 +25,10 @@ class DurablePaperTradingEngine(PaperTradingEngine):
 
     STATE_VERSION = 1
 
-    def __init__(self, *args: Any, state_path: str | Path, **kwargs: Any) -> None:
-        self.state_path = Path(state_path)
+    def __init__(self, *args: Any, state_path: str | Path | None = None, **kwargs: Any) -> None:
+        recorder = kwargs.get("recorder")
+        default_dir = getattr(recorder, "output_dir", Path("data/paper_trading"))
+        self.state_path = Path(state_path) if state_path is not None else Path(default_dir) / "paper_state.json"
         super().__init__(*args, **kwargs)
 
     @staticmethod

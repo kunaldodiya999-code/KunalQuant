@@ -161,6 +161,9 @@ def test_control_api_rejects_manual_stop_when_trailing_controls_disabled(tmp_pat
     service = PaperControlService(session=session, settings_path=settings_path, port=0)
     service.start()
     try:
+        trade_before = session.engine.open_trade(PaperStrategyId.STRATEGY_A)
+        assert trade_before is not None
+        original_stop = trade_before.position.stop_loss
         url = f"http://127.0.0.1:{service._server.server_address[1]}/api/manual-stop"
         try:
             _request(
@@ -177,6 +180,6 @@ def test_control_api_rejects_manual_stop_when_trailing_controls_disabled(tmp_pat
 
         trade = session.engine.open_trade(PaperStrategyId.STRATEGY_A)
         assert trade is not None
-        assert trade.position.stop_loss == 70
+        assert trade.position.stop_loss == original_stop
     finally:
         service.stop()

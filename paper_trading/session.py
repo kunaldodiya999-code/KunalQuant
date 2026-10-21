@@ -65,7 +65,7 @@ def process_completed_option_candle(
 @dataclass(frozen=True)
 class PaperSessionConfig:
     lot_size: int
-    allocation: float = 15_000.0
+    allocation: float = 20_000.0
     resolution_minutes: int = 3
     underlying_symbol: str = "NSE:NIFTY50-INDEX"
     database_path: str | Path | None = None
@@ -74,8 +74,10 @@ class PaperSessionConfig:
     pending_timeout_seconds: int = 8
     max_quote_age_seconds: int = 5
     max_receive_age_seconds: float = 5.0
-    stop_loss_pct: float = 0.20
-    target_rr: float = 3.0
+    stop_loss_pct: float = 0.30
+    target_rr: float = 2.0
+    partial_exit_fraction: float = 0.50
+    entry_cutoff: str = "15:00"
     target_enabled: bool = True
 
     def __post_init__(self) -> None:
@@ -134,6 +136,7 @@ def build_paper_session(
             lot_size=config.lot_size,
             stop_loss_pct=config.stop_loss_pct,
             target_rr=config.target_rr,
+            partial_exit_fraction=config.partial_exit_fraction,
             target_enabled=config.target_enabled,
         )
     )
@@ -148,7 +151,9 @@ def build_paper_session(
             max_quote_age_seconds=config.max_quote_age_seconds
         ),
     )
-    coordinator = PaperExecutionCoordinator(adapter=adapter, engine=engine)
+    coordinator = PaperExecutionCoordinator(
+        adapter=adapter, engine=engine, entry_cutoff=config.entry_cutoff
+    )
 
     # Late-bound callbacks resolve entry wiring and shadow exit tracking.
     holder: dict[str, PendingEntryOrchestrator] = {}

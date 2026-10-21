@@ -11,6 +11,7 @@ from datetime import datetime, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Any, Callable
+import threading
 
 from api.fyers_client import FyersClient
 from market_data.fyers_quote_cache import FyersQuoteCache
@@ -26,6 +27,7 @@ from paper_trading.pending_entry_orchestrator import PendingEntryConfig, Pending
 from paper_trading.recorder import PaperTradeRecorder
 from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
 from paper_trading.settings import PaperTradingSettings
+from paper_trading.control_server import PaperControlService
 from strategies.option_contract_resolver import OptionContractResolver
 
 
@@ -115,12 +117,74 @@ class PaperSession:
     recorder: PaperTradeRecorder
     tsl_shadow: TslShadowLab
     alerts: list[str]
+    control_service: PaperControlService | None = None
+    _watchdog_stop: threading.Event | None = None
+    _watchdog_thread: threading.Thread | None = None
 
     def start(self) -> None:
-        """Start market-data streaming only; no broker orders are submitted."""
+        """Start local controls, forced-exit watchdog, and market data; no orders."""
+        if self.control_service is not None:
+            self.control_service.start()
+        if self._watchdog_stop is None:
+            self._watchdog_stop = threading.Event()
+            self._watchdog_thread = threading.Thread(
+                target=self._forced_exit_watchdog,
+                name="kunal-paper-forced-exit-watchdog",
+                daemon=True,
+            )
+            self._watchdog_thread.start()
         self.feed.start()
 
+    def _forced_exit_watchdog(self) -> None:
+        """Independently retry EOD exits using only validated cached quotes."""
+        market_tz = ZoneInfo("Asia/Kolkata")
+        while self._watchdog_stop is not None and not self._watchdog_stop.wait(1.0):
+            if self.control_service is not None:
+                try:
+                    settings = PaperTradingSettings.load(self.control_service.settings_path)
+                    enabled = settings.forced_exit_enabled
+                    exit_clock = time.fromisoformat(settings.forced_exit_time)
+                except (ValueError, OSError):
+                    enabled, exit_clock = True, time(15, 10)
+            else:
+                enabled, exit_clock = True, time(15, 10)
+            now = datetime.now(market_tz)
+            if not enabled or now.time() < exit_clock:
+                continue
+            now_epoch = int(now.timestamp())
+            for strategy_id in PaperStrategyId:
+                trade = self.engine.open_trade(strategy_id)
+                if trade is None:
+                    continue
+                symbol = trade.position.symbol
+                try:
+                    quote = self.quote_cache.get_quote(
+                        symbol, decision_timestamp=now_epoch,
+                        max_exchange_age_seconds=5, max_receive_age_seconds=5.0,
+                    )
+                    price = float(quote["lp"])
+                    self.engine.force_exit_position(
+                        strategy_id=strategy_id, timestamp=now_epoch,
+                        fresh_option_price=price,
+                    )
+                    self.alerts.append(
+                        f"FORCED EXIT COMPLETED: {symbol} at validated quote ₹{price:.2f}."
+                    )
+                except (LookupError, ValueError, KeyError, TypeError):
+                    alert = (
+                        f"FORCED EXIT PENDING: {symbol} has no fresh validated quote "
+                        f"at/after {exit_clock.strftime('%H:%M')} IST; position remains open."
+                    )
+                    if alert not in self.alerts:
+                        self.alerts.append(alert)
+
     def close(self) -> None:
+        if self._watchdog_stop is not None:
+            self._watchdog_stop.set()
+        if self._watchdog_thread is not None:
+            self._watchdog_thread.join(timeout=2)
+        if self.control_service is not None:
+            self.control_service.stop()
         self.feed.close()
 
 
@@ -303,7 +367,7 @@ def build_paper_session(
     )
     holder["orchestrator"] = orchestrator
 
-    return PaperSession(
+    session = PaperSession(
         feed=feed,
         quote_cache=quote_cache,
         pipeline=pipeline,
@@ -315,6 +379,11 @@ def build_paper_session(
         tsl_shadow=tsl_shadow,
         alerts=session_alerts,
     )
+    session.control_service = PaperControlService(
+        session=session,
+        settings_path=config.settings_path or "data/paper_trading/settings.json",
+    )
+    return session
 
 
 __all__ = ["PaperSession", "PaperSessionConfig", "build_paper_session", "process_completed_option_candle"]

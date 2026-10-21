@@ -248,9 +248,8 @@ class PaperTradingEngine:
         position.remaining_quantity = 0
         position.remaining_lots = 0
         position.closed = True
-        from backtest.option_trade_lifecycle import OptionExitReason
         event = OptionTradeExit(
-            timestamp=int(timestamp), reason=OptionExitReason.END_OF_DATA,
+            timestamp=int(timestamp), reason="FORCED_EXIT",
             price=price, quantity=quantity, lots=lots, pnl=pnl,
             remaining_quantity=0, remaining_lots=0,
         )

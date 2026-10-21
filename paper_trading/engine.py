@@ -199,6 +199,7 @@ class PaperTradingEngine:
         option_close: float,
         underlying_close: float | None,
         kama_value: Optional[float],
+        option_open: float | None = None,
     ) -> list[OptionTradeExit]:
         """Advance only the selected strategy's position through lifecycle V1."""
         strategy = self._strategy_id(strategy_id)
@@ -212,7 +213,7 @@ class PaperTradingEngine:
                 "Option candle timestamps must be strictly increasing and later than entry."
             )
 
-        exits = self.lifecycle.process_candle(
+        candle_args = dict(
             position=record.position,
             timestamp=candle_timestamp,
             option_high=float(option_high),
@@ -225,6 +226,14 @@ class PaperTradingEngine:
             ),
             kama_value=kama_value,
         )
+        # Pass candle-open information only to paper lifecycles that explicitly
+        # support gap-aware stop fills. The locked historical V1 API is untouched.
+        if option_open is not None and hasattr(self.lifecycle, "process_candle_with_open"):
+            exits = self.lifecycle.process_candle_with_open(
+                **candle_args, option_open=float(option_open)
+            )
+        else:
+            exits = self.lifecycle.process_candle(**candle_args)
         record.exits.extend(exits)
         record.last_processed_timestamp = candle_timestamp
         if self.recorder is not None:

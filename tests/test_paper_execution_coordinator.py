@@ -81,6 +81,20 @@ class PaperExecutionCoordinatorTests(unittest.TestCase):
         self.assertIn("stale", attempt.rejection_reason)
         self.assertEqual(self.engine.all_trades(), ())
 
+    def test_entry_at_or_after_1500_ist_is_rejected(self):
+        cutoff = int(datetime(2026, 10, 13, 15, 0, tzinfo=TZ).timestamp())
+        signal = PaperSignal(
+            strategy_id=PaperStrategyId.STRATEGY_A, direction="SHORT",
+            timestamp=cutoff - 180, index=21, reason="CROSS_0.5",
+        )
+        attempt = self.coordinator.process_signal(
+            signal=signal, underlying_price=25000,
+            option_quote={"symbol":"NSE:NIFTY2610025000PE","lp":100,"exch_feed_time":cutoff},
+            decision_timestamp=cutoff,
+        )
+        self.assertIn("Entry cutoff", attempt.rejection_reason)
+        self.assertEqual(self.engine.all_trades(), ())
+
 
 if __name__ == "__main__":
     unittest.main()

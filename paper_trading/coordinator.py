@@ -8,7 +8,9 @@ at which the quote was observed/entry evaluated.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, time
 from typing import Any, Callable, Mapping
+from zoneinfo import ZoneInfo
 
 from paper_trading.entry_adapter import PaperEntryAdapter, PaperEntryCandidate
 from paper_trading.engine import PaperTradeRecord, PaperTradingEngine
@@ -31,9 +33,15 @@ class PaperExecutionCoordinator:
         *,
         adapter: PaperEntryAdapter,
         engine: PaperTradingEngine,
+        entry_cutoff: str = "15:00",
     ) -> None:
         self.adapter = adapter
         self.engine = engine
+        try:
+            self.entry_cutoff = time.fromisoformat(entry_cutoff)
+        except ValueError as exc:
+            raise ValueError("entry_cutoff must be HH:MM") from exc
+        self.market_timezone = ZoneInfo("Asia/Kolkata")
         self._seen_signals: set[tuple[str, str, int, int]] = set()
 
     @staticmethod
@@ -51,6 +59,12 @@ class PaperExecutionCoordinator:
     ) -> PaperEntryAttempt:
         """Attempt exactly one paper entry; repeated signal IDs are rejected."""
         key = self._key(signal)
+        decision_time = datetime.fromtimestamp(int(decision_timestamp), self.market_timezone).time()
+        if decision_time >= self.entry_cutoff:
+            return PaperEntryAttempt(
+                signal=signal, candidate=None, trade=None,
+                rejection_reason=f"Entry cutoff reached ({self.entry_cutoff.strftime('%H:%M')} IST); no new paper entries.",
+            )
         if int(decision_timestamp) <= int(signal.timestamp):
             return PaperEntryAttempt(
                 signal=signal, candidate=None, trade=None,

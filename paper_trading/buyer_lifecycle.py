@@ -29,6 +29,7 @@ class BuyerLifecycleConfig:
     target_rr: float = 3.0
     partial_exit_fraction: float = 0.50
     target_enabled: bool = True
+    single_lot_partial_mode: str = "close_all"
 
     def __post_init__(self) -> None:
         if not isfinite(self.allocation) or self.allocation <= 0:
@@ -41,6 +42,8 @@ class BuyerLifecycleConfig:
             raise ValueError("target_rr must be finite and positive")
         if not 0 < self.partial_exit_fraction < 1:
             raise ValueError("partial_exit_fraction must be between 0 and 1")
+        if self.single_lot_partial_mode not in {"close_all", "skip", "require_two_lots"}:
+            raise ValueError("Unsupported single_lot_partial_mode")
 
 
 class BuyerOptionTradeLifecycle:
@@ -73,13 +76,14 @@ class BuyerOptionTradeLifecycle:
             remaining_quantity=quantity,
         )
 
-    @staticmethod
-    def calculate_partial_exit_lots(total_lots: int) -> tuple[int, int]:
+    def calculate_partial_exit_lots(self, total_lots: int) -> tuple[int, int]:
         if total_lots < 1:
             raise ValueError("total_lots must be at least 1")
         if total_lots == 1:
+            if self.config.single_lot_partial_mode == "close_all":
+                return 1, 0
             return 0, 1
-        exit_lots = min((total_lots + 1) // 2, total_lots - 1)
+        exit_lots = min(max(1, int(total_lots * self.config.partial_exit_fraction + 0.999999)), total_lots - 1)
         return exit_lots, total_lots - exit_lots
 
     @staticmethod
@@ -136,12 +140,15 @@ class BuyerOptionTradeLifecycle:
         if (self.config.target_enabled and position.target is not None
                 and not position.partial_exit_done
                 and option_high >= position.target):
+            if not self.config.target_enabled:
+                return exits
             exit_lots, _remaining_lots = self.calculate_partial_exit_lots(
                 position.remaining_lots
             )
-            # A single-lot position cannot be partially exited. Close it fully
-            # at target rather than leaving the target permanently unhandled.
+            # One-lot policy is explicit: close fully or skip the partial.
             if exit_lots == 0:
+                return exits
+            if exit_lots == position.remaining_lots:
                 exits.append(close_quantity(
                     OptionExitReason.TARGET_3R, position.target,
                     position.remaining_quantity, position.remaining_lots,

@@ -271,6 +271,9 @@ def build_paper_session(
         starting_capital=config.starting_capital,
         allocation_pct=config.allocation_pct,
     )
+    # Recover persisted paper positions before the feed can accept new signals.
+    # A corrupt/mismatched snapshot raises and prevents an unsafe fresh session.
+    engine.restore_state()
     adapter = PaperEntryAdapter(
         resolver=resolver,
         config=PaperEntryAdapterConfig(

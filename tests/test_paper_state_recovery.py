@@ -1,4 +1,4 @@
-import json
+import csv
 
 import pytest
 
@@ -6,7 +6,7 @@ from backtest.option_trade_lifecycle import OptionTradeDirection
 from paper_trading.buyer_lifecycle import BuyerLifecycleConfig, BuyerOptionTradeLifecycle
 from paper_trading.durable_engine import DurablePaperTradingEngine, PaperStateRecoveryError
 from paper_trading.engine import PaperStrategyId
-from paper_trading.recorder import PaperTradeRecorder
+from paper_trading.recorder import PaperTradeRecorder, TRADE_FIELDS
 
 
 def _engine(tmp_path):
@@ -118,8 +118,13 @@ def test_journal_snapshot_conflict_fails_closed(tmp_path):
         fresh_option_price=110,
     )
     journal = tmp_path / "trade_events.csv"
-    text = journal.read_text(encoding="utf-8")
-    journal.write_text(text.replace(",110.0,", ",111.0,"), encoding="utf-8")
+    with journal.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    rows[-1]["event_timestamp"] = "201"
+    with journal.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=TRADE_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
 
     restarted = _engine(tmp_path)
     with pytest.raises(PaperStateRecoveryError, match="journal"):

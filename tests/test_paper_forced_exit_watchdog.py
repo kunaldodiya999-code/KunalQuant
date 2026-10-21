@@ -42,7 +42,7 @@ def _session(tmp_path, quote_cache):
         direction=OptionTradeDirection.LONG,
         symbol="NSE:NIFTYCE",
         entry_price=100,
-        timestamp=1_800_000_000,
+        timestamp=1_792_600_000,
     )
     return session
 

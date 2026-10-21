@@ -85,3 +85,44 @@ def test_control_api_manual_stop_updates_only_open_paper_position(tmp_path):
         assert session.engine.open_trade(PaperStrategyId.STRATEGY_A).position.stop_loss == 75
     finally:
         service.stop()
+
+
+
+def test_control_server_serves_settings_page_and_can_restart(tmp_path):
+    session = _Session()
+    service = PaperControlService(
+        session=session, settings_path=tmp_path / "settings.json", port=0
+    )
+    service.start()
+    first_port = service._server.server_address[1]
+    try:
+        with urlopen(f"http://127.0.0.1:{first_port}/settings", timeout=3) as response:
+            page = response.read().decode("utf-8")
+            assert response.status == 200
+            assert "SIMULATION ONLY" in page
+    finally:
+        service.stop()
+
+    assert service._server is None
+    assert service._thread is None
+
+    service.start()
+    try:
+        second_port = service._server.server_address[1]
+        status = _request(f"http://127.0.0.1:{second_port}/api/status")
+        assert status["mode"] == "paper_only"
+    finally:
+        service.stop()
+
+
+def test_control_server_rejects_non_loopback_binding(tmp_path):
+    session = _Session()
+    try:
+        PaperControlService(
+            session=session, settings_path=tmp_path / "settings.json",
+            host="0.0.0.0", port=8765,
+        )
+    except ValueError as exc:
+        assert "loopback only" in str(exc)
+    else:
+        raise AssertionError("Non-loopback control server binding was accepted.")

@@ -1,4 +1,5 @@
 import csv
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -145,3 +146,35 @@ def test_journal_without_snapshot_fails_closed(tmp_path):
     restarted = _engine(tmp_path)
     with pytest.raises(PaperStateRecoveryError, match="snapshot is missing"):
         restarted.restore_state()
+
+
+
+def test_concurrent_forced_exits_cannot_close_same_position_twice(tmp_path):
+    engine = _engine(tmp_path)
+    engine.open_position(
+        strategy_id=PaperStrategyId.STRATEGY_A,
+        direction=OptionTradeDirection.LONG,
+        symbol="NSE:NIFTYCE",
+        entry_price=100,
+        timestamp=100,
+    )
+
+    def exit_trade(timestamp, price):
+        try:
+            return engine.force_exit_position(
+                strategy_id=PaperStrategyId.STRATEGY_A,
+                timestamp=timestamp,
+                fresh_option_price=price,
+            )
+        except ValueError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda args: exit_trade(*args), [(200, 110), (201, 111)]))
+
+    assert sum(result is not None for result in results) == 1
+    restored = _engine(tmp_path)
+    restored.restore_state()
+    trade = restored.trades(PaperStrategyId.STRATEGY_A)[0]
+    assert trade.closed
+    assert len(trade.exits) == 1

@@ -66,9 +66,15 @@ def main() -> int:
 
     def on_message(message: Any) -> None:
         # FYERS sends control/status frames (cn, ful, sub, etc.) through the
-        # same callback as quote ticks. They are not malformed market quotes
-        # and should not be submitted to the quote cache.
-        if isinstance(message, dict) and message.get("type") != "sf":
+        # same callback as market data. Quote frame type can vary by feed
+        # (the live index callback observed type="if"), so identify quotes by
+        # their actual symbol and ltp fields rather than a single type value.
+        is_quote = (
+            isinstance(message, dict)
+            and isinstance(message.get("symbol"), str)
+            and message.get("ltp") is not None
+        )
+        if not is_quote:
             kind = str(message.get("type", "<missing-type>"))
             with lock:
                 status_counts[kind] = status_counts.get(kind, 0) + 1

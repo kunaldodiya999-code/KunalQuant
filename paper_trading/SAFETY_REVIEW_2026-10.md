@@ -1,42 +1,46 @@
 # Paper Buyer Safety Review — 2026-10-21
 
-Scope: `feature/paper-buyer-engine-port`. This review covers the current paper-trading integration only. It does not authorize live execution, and it does not modify the locked historical lifecycle in `backtest/option_trade_lifecycle.py`.
+Scope: `feature/paper-buyer-engine-port`. This review covers the current paper-trading integration only. It does not authorize live execution and does not modify the locked historical lifecycle in `backtest/option_trade_lifecycle.py`.
 
-## Fixed in this review
+## Implemented in this milestone
 
-- **Single-lot target never closed the trade:** when a position had one lot, the partial-target calculation returned zero lots to exit. The target handler now closes the full remaining position at the target price. Regression coverage was added in `tests/test_paper_buyer_lifecycle.py`.
-- Existing conservative rule remains: if a completed candle touches both stop and target, stop loss is processed first.\n- Buyer-only partial exits now use the configured fraction with whole-lot rounding, and the one-lot close-all/skip policy is explicit.\n- The paper coordinator rejects new entries at/after the configured 15:00 IST cutoff.\n- Optional engine cash accounting uses starting capital + realized exit P&L − entry cost of open remaining quantities, then caps new entries to the configured percentage of available cash. This is enabled by the session composition root.\n- Manual stop updates and a forced-exit engine operation are available; forced exit requires a valid positive quote supplied by its caller.
+- Buyer-only partial exits use the configured fraction with whole-lot rounding and an explicit one-lot policy.
+- The coordinator rejects new entries at/after the configured cutoff (default 15:00 IST).
+- Cash allocation uses starting capital + realized exit P&L − entry cost of open remaining quantities and caps new entries to the configured percentage of available cash.
+- Manual stop updates are available through the engine and local control API; the API respects the setting that controls whether loosening is allowed.
+- A loopback-only HTTP control service serves the settings page, persists validated JSON settings, exposes paper-session status, and applies future-entry risk settings.
+- The settings UI posts to the local API and can submit a manual stop update for a selected strategy.
+- A dedicated watchdog thread checks open positions independently of option-tick callbacks after the configured forced-exit time. It closes only from a quote accepted by the quote cache's exchange-time and local-receipt freshness checks. Missing/stale quotes leave positions open and produce an in-memory alert.
+- The single-lot target closes the full position when configured; stop-first handling remains conservative when one candle touches both stop and target.
+- Historical V1 lifecycle remains unchanged.
 
 ## Open blockers before relying on a full-session paper run
 
-### P0 — No forced end-of-day liquidation
-The session attempts a forced exit at/after 15:10 IST only when a tick for that open option arrives. Missing/stale quote data leaves the trade open and records an in-memory alert. There is still no independent watchdog, durable alert, or guarantee that an exit is attempted if ticks stop arriving. Do not call this operationally complete.
+### P0 — Restart recovery and reconciliation are incomplete
+The engine's active positions, partial exits, last processed candle timestamps, and realized P&L remain in-memory state. Restarting can lose active state while the append-only journal still contains ENTRY/EXIT events. Implement durable state restoration and reconciliation before unattended runs.
 
-### P0 — Open trade state is not restored after restart
-The pending-entry orchestrator persists processed signal keys, but the engine's active positions, partial exits, last processed candle timestamps, and realized P&L are in-memory state. Restarting the process can lose an open paper position while the journal still contains its ENTRY. Add durable state recovery and reconciliation against the append-only trade-event journal before unattended runs.
+### P0 — Watchdog/control integration needs runtime verification
+The independent watchdog and local HTTP API have been added but have not yet been executed by a test run in this development step. Verify watchdog timing, repeated retries, close-vs-candle concurrency, server lifecycle, and browser/API behavior. A fresh quote is mandatory; the system must never fabricate a fill.
 
 ### P1 — Stop fills assume the stop price even across gaps
-The lifecycle receives high/low/close but not candle open. If an option candle opens below the stop, the simulated exit is still recorded at the stop level. This may overstate performance. Use a conservative gap-aware fill rule (e.g. opening price when it gaps through the stop) and test it before interpreting paper P&L.
+The lifecycle receives high/low/close but not candle open. If an option candle opens below the stop, the simulated exit may be recorded at the stop level, overstating performance. Add a conservative gap-aware fill rule and regression tests.
 
-### P1 — Risk/session controls are incomplete
-The no-new-entry cutoff and cash allocation are now enforced in the configured session path. Daily loss cutoff is intentionally disabled per user instruction and has no active stop mechanism; enabling it in the UI is not yet enforced by the engine. The forced exit remains tick-driven rather than independent.
-
-### P1 — Partial-exit configuration is misleading
-The configured partial-exit fraction now determines whole-lot exit quantity (rounding up while retaining at least one lot), and a regression test covers the 50% case. The UI stores settings locally and exports JSON; it is not a live control surface for an already-running session.
+### P1 — Daily loss cutoff is not enforced
+Daily loss cutoff remains disabled per user instruction. The UI validates and persists its configuration, but enabling it is not enforced by the engine. Do not enable it until enforcement and tests exist.
 
 ### P1 — Broker data contract remains unverified
-The feed adapter has fake-socket tests, but the actual installed FYERS SDK callback payloads, subscription behavior, reconnect lifecycle, and real option quote timestamp semantics have not been verified against a live market-data-only session. Verify these with no order API enabled.
+Actual installed FYERS SDK callback payloads, subscription behavior, reconnect lifecycle, and real option quote timestamp semantics have not been verified against a market-data-only session. Validate without enabling any order API.
 
 ### P1 — Contract metadata must be validated at run time
-The lot size is deliberately supplied by the caller, but the default resolver strike step and selected expiry/lot metadata must be checked against current exchange contract specifications. Do not treat defaults as verified current contract data.
+Lot size is supplied by the caller. Verify current lot size, strike step, expiry and contract metadata against current exchange specifications rather than treating defaults as authoritative.
 
 ## Release gate for paper-only operation
 
-Before an unattended paper session, require:
-1. A dedicated session clock that blocks new entries at the configured cutoff and attempts forced exits independently of ticks.
-2. Restart recovery and reconciliation tests covering open positions, partial exits, duplicate signals, and repeated candle delivery.
-3. Gap-through-stop and stale/missing quote tests.
-4. Verified current lot size, strike step, expiry, and actual FYERS callback payloads.
-5. A fresh full test run on this branch and a market-data-only smoke test.
+Before unattended paper sessions:
+1. Complete durable recovery and reconciliation for open positions, partial exits, duplicate signals and repeated candle delivery.
+2. Run the focused and full test suites after the control API/watchdog changes.
+3. Test gap-through-stop and stale/missing quote scenarios.
+4. Verify current contract metadata and actual FYERS callback payloads.
+5. Complete a market-data-only smoke test and inspect logs/alerts.
 
-**Status:** paper-only integration; not ready for unattended full-session validation until the P0 items above are closed. No live orders are supported by this branch.
+**Status:** paper-only integration, not approved for unattended full-session operation. No live orders are supported by this branch.

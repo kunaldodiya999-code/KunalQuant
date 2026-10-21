@@ -29,7 +29,7 @@ The buyer-only paper lifecycle receives candle open through the session integrat
 Daily loss cutoff remains disabled per user instruction. The UI validates and persists its configuration, but enabling it is not enforced by the engine. Do not enable it until enforcement and tests exist.
 
 ### P1 — Broker data contract remains unverified
-Actual installed FYERS SDK callback payloads, subscription behavior, reconnect lifecycle, and real option quote timestamp semantics have not been verified against a market-data-only session. Validate without enabling any order API.
+Fake-socket tests now cover reconnect re-subscription, option ticks bypassing the KTMI signal pipeline, and invalid quote rejection. These are adapter contract tests only: actual installed FYERS SDK callback payloads, live subscription behavior, reconnect lifecycle, and real option quote timestamp semantics remain unverified against a market-data-only session. Validate without enabling any order API.
 
 ### P1 — Contract metadata must be validated at run time
 Lot size is supplied by the caller. Verify current lot size, strike step, expiry and contract metadata against current exchange specifications rather than treating defaults as authoritative.

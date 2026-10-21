@@ -63,6 +63,7 @@ def process_completed_option_candle(
             option_low=candle.low,
             option_close=candle.close,
             underlying_close=None,
+            option_open=candle.open,
             kama_value=None,
         )
 

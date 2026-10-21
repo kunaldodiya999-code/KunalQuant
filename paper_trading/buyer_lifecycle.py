@@ -97,10 +97,15 @@ class BuyerOptionTradeLifecycle:
         self, *, position: OptionTradePosition, timestamp: int,
         option_high: float, option_low: float, option_close: float,
         underlying_close: Optional[float], kama_value: Optional[float],
+        option_open: Optional[float] = None,
     ) -> list[OptionTradeExit]:
         if position.closed:
             return []
         values = (option_high, option_low, option_close)
+        if option_open is not None and (
+            not isfinite(float(option_open)) or float(option_open) <= 0
+        ):
+            raise ValueError("Option candle open must be finite and positive")
         if not all(isfinite(float(v)) for v in values):
             raise ValueError("Option candle prices must be finite")
         # Underlying close is needed only when a KAMA exit is enabled.
@@ -132,8 +137,15 @@ class BuyerOptionTradeLifecycle:
 
         # Stop is checked before target, including when both are touched.
         if option_low <= position.stop_loss:
+            # If the candle opens through the stop, assume the worse opening
+            # premium rather than granting an unrealistic fill at the stop.
+            stop_fill = (
+                float(option_open)
+                if option_open is not None and float(option_open) < position.stop_loss
+                else position.stop_loss
+            )
             exits.append(close_quantity(
-                OptionExitReason.STOP_LOSS, position.stop_loss,
+                OptionExitReason.STOP_LOSS, stop_fill,
                 position.remaining_quantity, position.remaining_lots,
             ))
             return exits

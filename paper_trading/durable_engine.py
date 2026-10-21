@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ class DurablePaperTradingEngine(PaperTradingEngine):
             else (Path(default_dir) / "paper_state.json" if default_dir is not None else None)
         )
         super().__init__(*args, **kwargs)
+        self._state_lock = threading.RLock()
 
     @staticmethod
     def _finite_number(value: Any, label: str) -> float:
@@ -88,14 +90,15 @@ class DurablePaperTradingEngine(PaperTradingEngine):
     def persist_state(self) -> None:
         if self.state_path is None:
             return
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        temp = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
-        payload = json.dumps(self._snapshot(), sort_keys=True, allow_nan=False)
-        with temp.open("w", encoding="utf-8") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        temp.replace(self.state_path)
+        with self._state_lock:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
+            payload = json.dumps(self._snapshot(), sort_keys=True, allow_nan=False)
+            with temp.open("w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            temp.replace(self.state_path)
 
     def restore_state(self) -> None:
         if self.state_path is None:
@@ -223,27 +226,31 @@ class DurablePaperTradingEngine(PaperTradingEngine):
 
 
     def open_position(self, **kwargs: Any):
-        result = super().open_position(**kwargs)
-        if result is not None:
-            self.persist_state()
-        return result
+        with self._state_lock:
+            result = super().open_position(**kwargs)
+            if result is not None:
+                self.persist_state()
+            return result
 
     def process_option_candle(self, **kwargs: Any):
-        result = super().process_option_candle(**kwargs)
-        # Persist even when no exit occurred: this is the duplicate-candle guard.
-        if self.active_positions.get(self._strategy_id(kwargs["strategy_id"])) is not None:
-            self.persist_state()
-        return result
+        with self._state_lock:
+            result = super().process_option_candle(**kwargs)
+            # Persist even when no exit occurred: this is the duplicate-candle guard.
+            if self.active_positions.get(self._strategy_id(kwargs["strategy_id"])) is not None:
+                self.persist_state()
+            return result
 
     def update_manual_stop(self, **kwargs: Any):
-        result = super().update_manual_stop(**kwargs)
-        self.persist_state()
-        return result
+        with self._state_lock:
+            result = super().update_manual_stop(**kwargs)
+            self.persist_state()
+            return result
 
     def force_exit_position(self, **kwargs: Any):
-        result = super().force_exit_position(**kwargs)
-        self.persist_state()
-        return result
+        with self._state_lock:
+            result = super().force_exit_position(**kwargs)
+            self.persist_state()
+            return result
 
 
 __all__ = ["DurablePaperTradingEngine", "PaperStateRecoveryError"]

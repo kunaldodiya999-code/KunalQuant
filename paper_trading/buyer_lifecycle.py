@@ -15,7 +15,6 @@ from backtest.option_trade_lifecycle import (
     OptionExitReason,
     OptionTradeDirection,
     OptionTradeExit,
-    OptionTradeLifecycleConfig,
     OptionTradePosition,
 )
 
@@ -137,17 +136,25 @@ class BuyerOptionTradeLifecycle:
         if (self.config.target_enabled and position.target is not None
                 and not position.partial_exit_done
                 and option_high >= position.target):
-            exit_lots, remaining_lots = self.calculate_partial_exit_lots(
+            exit_lots, _remaining_lots = self.calculate_partial_exit_lots(
                 position.remaining_lots
             )
-            if exit_lots > 0:
-                exit_quantity = exit_lots * self.config.lot_size
+            # A single-lot position cannot be partially exited. Close it fully
+            # at target rather than leaving the target permanently unhandled.
+            if exit_lots == 0:
                 exits.append(close_quantity(
                     OptionExitReason.TARGET_3R, position.target,
-                    exit_quantity, exit_lots,
+                    position.remaining_quantity, position.remaining_lots,
                 ))
-                position.partial_exit_done = True
                 return exits
+
+            exit_quantity = exit_lots * self.config.lot_size
+            exits.append(close_quantity(
+                OptionExitReason.TARGET_3R, position.target,
+                exit_quantity, exit_lots,
+            ))
+            position.partial_exit_done = True
+            return exits
 
         if not position.closed and position.remaining_quantity > 0 and kama_value is not None:
             kama_exit = (

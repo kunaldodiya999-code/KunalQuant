@@ -22,8 +22,8 @@ The engine's active positions, partial exits, last processed candle timestamps, 
 ### P0 — Watchdog/control integration needs runtime verification
 The independent watchdog and local HTTP API have been added but have not yet been executed by a test run in this development step. Verify watchdog timing, repeated retries, close-vs-candle concurrency, server lifecycle, and browser/API behavior. A fresh quote is mandatory; the system must never fabricate a fill.
 
-### P1 — Stop fills assume the stop price even across gaps
-The lifecycle receives high/low/close but not candle open. If an option candle opens below the stop, the simulated exit may be recorded at the stop level, overstating performance. Add a conservative gap-aware fill rule and regression tests.
+### P1 — Paper gap-aware stop fills added; runtime regression pending
+The buyer-only paper lifecycle now receives candle open through the session integration. When an option candle opens below the stop, the simulated fill uses the worse opening premium; an intrabar stop touch without a gap still fills at the configured stop. Regression tests were added, but must be run in the target environment before this gate is considered verified.
 
 ### P1 — Daily loss cutoff is not enforced
 Daily loss cutoff remains disabled per user instruction. The UI validates and persists its configuration, but enabling it is not enforced by the engine. Do not enable it until enforcement and tests exist.
@@ -39,7 +39,7 @@ Lot size is supplied by the caller. Verify current lot size, strike step, expiry
 Before unattended paper sessions:
 1. Complete durable recovery and reconciliation for open positions, partial exits, duplicate signals and repeated candle delivery.
 2. Run the focused and full test suites after the control API/watchdog changes.
-3. Test gap-through-stop and stale/missing quote scenarios.
+3. Run the new gap-through-stop regression tests and test stale/missing quote scenarios.
 4. Verify current contract metadata and actual FYERS callback payloads.
 5. Complete a market-data-only smoke test and inspect logs/alerts.
 

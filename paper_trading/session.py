@@ -295,36 +295,7 @@ def build_paper_session(
                 quantity=position.quantity,
             )
 
-        # At/after the forced-exit time, a fresh tick for an open option is the
-        # only permitted fill source. Missing/stale quotes alert and remain open.
-        if isinstance(message, dict):
-            symbol = message.get("symbol")
-            if isinstance(symbol, str) and symbol.strip() != config.underlying_symbol:
-                option_symbol = symbol.strip()
-                if config.forced_exit_enabled and datetime.now(market_tz).time() >= forced_exit_clock:
-                    now_epoch = int(datetime.now(market_tz).timestamp())
-                    try:
-                        quote_price = float(message.get("lp", message.get("ltp", message.get("last_price"))))
-                        quote_timestamp = int(message.get("exch_feed_time", message.get("last_traded_time", message.get("timestamp"))))
-                        quote_age = now_epoch - quote_timestamp
-                        valid_quote = quote_price > 0 and 0 <= quote_age <= config.max_quote_age_seconds
-                    except (TypeError, ValueError):
-                        valid_quote = False
-                        quote_price = 0.0
-                    for strategy_id in PaperStrategyId:
-                        active = engine.open_trade(strategy_id)
-                        if active is None or active.position.symbol != option_symbol:
-                            continue
-                        if valid_quote:
-                            engine.force_exit_position(
-                                strategy_id=strategy_id, timestamp=now_epoch,
-                                fresh_option_price=quote_price,
-                            )
-                        else:
-                            alert = f"FORCED EXIT PENDING: {option_symbol} has missing/stale quote at/after {config.forced_exit_time} IST; position remains open."
-                            if not session_alerts or session_alerts[-1] != alert:
-                                session_alerts.append(alert)
-                for candle in option_tick_builder.on_message(message):
+        # End-of-day liquidation is handled by the independent watchdog.\n                for candle in option_tick_builder.on_message(message):
                     option_candle = OptionCandle(
                         timestamp=candle.timestamp, open=candle.open,
                         high=candle.high, low=candle.low, close=candle.close,

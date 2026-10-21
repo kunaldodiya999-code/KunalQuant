@@ -113,3 +113,57 @@ def test_single_lot_position_closes_fully_when_target_is_hit():
     assert exits[0].remaining_quantity == 0
     assert position.closed
     assert position.gross_pnl == 7_500
+
+
+def test_gap_through_stop_fills_at_open_not_unreachable_stop():
+    lifecycle = BuyerOptionTradeLifecycle(
+        BuyerLifecycleConfig(
+            allocation=15_000, lot_size=25, stop_loss_pct=0.20, target_rr=2
+        )
+    )
+    position = lifecycle.create_position(
+        strategy_id="A",
+        direction=OptionTradeDirection.LONG,
+        symbol="NSE:NIFTY2610025000CE",
+        entry_price=100,
+    )
+    exits = lifecycle.process_candle_with_open(
+        position=position,
+        timestamp=400,
+        option_open=70,
+        option_high=75,
+        option_low=65,
+        option_close=68,
+        underlying_close=None,
+        kama_value=None,
+    )
+    assert len(exits) == 1
+    assert exits[0].reason == OptionExitReason.STOP_LOSS
+    assert exits[0].price == 70
+    assert exits[0].pnl == (70 - 100) * position.quantity
+
+
+def test_intrabar_stop_touch_without_gap_keeps_stop_price_fill():
+    lifecycle = BuyerOptionTradeLifecycle(
+        BuyerLifecycleConfig(
+            allocation=15_000, lot_size=25, stop_loss_pct=0.20, target_rr=2
+        )
+    )
+    position = lifecycle.create_position(
+        strategy_id="A",
+        direction=OptionTradeDirection.LONG,
+        symbol="NSE:NIFTY2610025000CE",
+        entry_price=100,
+    )
+    exits = lifecycle.process_candle_with_open(
+        position=position,
+        timestamp=500,
+        option_open=95,
+        option_high=98,
+        option_low=75,
+        option_close=82,
+        underlying_close=None,
+        kama_value=None,
+    )
+    assert len(exits) == 1
+    assert exits[0].price == 80

@@ -1,6 +1,5 @@
 import pytest
 
-from backtest.option_trade_lifecycle import OptionExitReason
 from paper_trading.engine import PaperStrategyId, PaperTradingEngine
 
 
@@ -48,7 +47,7 @@ def test_forced_exit_requires_valid_positive_price_and_closes_paper_only():
         strategy_id=PaperStrategyId.STRATEGY_A, timestamp=200,
         fresh_option_price=110,
     )
-    assert event.reason == OptionExitReason.END_OF_DATA
+    assert event.reason == "FORCED_EXIT"
     assert event.price == 110
     assert event.pnl == 10 * trade.position.quantity
     assert trade.closed

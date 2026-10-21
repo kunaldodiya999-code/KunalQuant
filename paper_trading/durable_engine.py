@@ -27,8 +27,11 @@ class DurablePaperTradingEngine(PaperTradingEngine):
 
     def __init__(self, *args: Any, state_path: str | Path | None = None, **kwargs: Any) -> None:
         recorder = kwargs.get("recorder")
-        default_dir = getattr(recorder, "output_dir", Path("data/paper_trading"))
-        self.state_path = Path(state_path) if state_path is not None else Path(default_dir) / "paper_state.json"
+        default_dir = getattr(recorder, "output_dir", None)
+        self.state_path = (
+            Path(state_path) if state_path is not None
+            else (Path(default_dir) / "paper_state.json" if default_dir is not None else None)
+        )
         super().__init__(*args, **kwargs)
 
     @staticmethod
@@ -83,6 +86,8 @@ class DurablePaperTradingEngine(PaperTradingEngine):
         }
 
     def persist_state(self) -> None:
+        if self.state_path is None:
+            return
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
         payload = json.dumps(self._snapshot(), sort_keys=True, allow_nan=False)
@@ -93,6 +98,8 @@ class DurablePaperTradingEngine(PaperTradingEngine):
         temp.replace(self.state_path)
 
     def restore_state(self) -> None:
+        if self.state_path is None:
+            return
         if not self.state_path.exists():
             # A journal without its corresponding state is ambiguous: never
             # silently start fresh and risk duplicating/reopening trades.

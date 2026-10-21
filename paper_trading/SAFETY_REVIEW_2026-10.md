@@ -41,6 +41,6 @@ Before unattended paper sessions:
 2. Run the focused and full test suites after the control API/watchdog changes.
 3. Run the new gap-through-stop regression tests and test stale/missing quote scenarios.
 4. Verify current contract metadata and actual FYERS callback payloads.
-5. Complete a market-data-only smoke test and inspect logs/alerts.
+5. Run `python scripts/fyers_market_data_smoke_test.py --seconds 60` during market hours, inspect its output, and verify the actual callback shape and quote timestamps before starting any paper session.
 
 **Status:** paper-only integration, not approved for unattended full-session operation. No live orders are supported by this branch.

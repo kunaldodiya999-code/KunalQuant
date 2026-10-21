@@ -137,48 +137,55 @@ class PaperSession:
             self._watchdog_thread.start()
         self.feed.start()
 
+    def check_forced_exits(self, now: datetime | None = None) -> None:
+        """Check EOD exits once; stale/missing quotes never create a fill."""
+        market_tz = ZoneInfo("Asia/Kolkata")
+        if self.control_service is not None:
+            try:
+                settings = PaperTradingSettings.load(self.control_service.settings_path)
+                enabled = settings.forced_exit_enabled
+                exit_clock = time.fromisoformat(settings.forced_exit_time)
+            except (ValueError, OSError):
+                # Fail safe: a bad settings file must not disable risk controls.
+                enabled, exit_clock = True, time(15, 10)
+        else:
+            enabled, exit_clock = True, time(15, 10)
+        now = (now or datetime.now(market_tz)).astimezone(market_tz)
+        if not enabled or now.time() < exit_clock:
+            return
+        now_epoch = int(now.timestamp())
+        for strategy_id in PaperStrategyId:
+            trade = self.engine.open_trade(strategy_id)
+            if trade is None:
+                continue
+            symbol = trade.position.symbol
+            try:
+                quote = self.quote_cache.get_quote(
+                    symbol, decision_timestamp=now_epoch,
+                    max_exchange_age_seconds=5, max_receive_age_seconds=5.0,
+                )
+                price = float(quote["lp"])
+                if price <= 0:
+                    raise ValueError("Invalid quote price.")
+                self.engine.force_exit_position(
+                    strategy_id=strategy_id, timestamp=now_epoch,
+                    fresh_option_price=price,
+                )
+                self.alerts.append(
+                    f"FORCED EXIT COMPLETED: {symbol} at validated quote ₹{price:.2f}."
+                )
+            except (LookupError, ValueError, KeyError, TypeError):
+                alert = (
+                    f"FORCED EXIT PENDING: {symbol} has no fresh validated quote "
+                    f"at/after {exit_clock.strftime('%H:%M')} IST; position remains open."
+                )
+                if alert not in self.alerts:
+                    self.alerts.append(alert)
+
     def _forced_exit_watchdog(self) -> None:
         """Independently retry EOD exits using only validated cached quotes."""
-        market_tz = ZoneInfo("Asia/Kolkata")
         while self._watchdog_stop is not None and not self._watchdog_stop.wait(1.0):
-            if self.control_service is not None:
-                try:
-                    settings = PaperTradingSettings.load(self.control_service.settings_path)
-                    enabled = settings.forced_exit_enabled
-                    exit_clock = time.fromisoformat(settings.forced_exit_time)
-                except (ValueError, OSError):
-                    enabled, exit_clock = True, time(15, 10)
-            else:
-                enabled, exit_clock = True, time(15, 10)
-            now = datetime.now(market_tz)
-            if not enabled or now.time() < exit_clock:
-                continue
-            now_epoch = int(now.timestamp())
-            for strategy_id in PaperStrategyId:
-                trade = self.engine.open_trade(strategy_id)
-                if trade is None:
-                    continue
-                symbol = trade.position.symbol
-                try:
-                    quote = self.quote_cache.get_quote(
-                        symbol, decision_timestamp=now_epoch,
-                        max_exchange_age_seconds=5, max_receive_age_seconds=5.0,
-                    )
-                    price = float(quote["lp"])
-                    self.engine.force_exit_position(
-                        strategy_id=strategy_id, timestamp=now_epoch,
-                        fresh_option_price=price,
-                    )
-                    self.alerts.append(
-                        f"FORCED EXIT COMPLETED: {symbol} at validated quote ₹{price:.2f}."
-                    )
-                except (LookupError, ValueError, KeyError, TypeError):
-                    alert = (
-                        f"FORCED EXIT PENDING: {symbol} has no fresh validated quote "
-                        f"at/after {exit_clock.strftime('%H:%M')} IST; position remains open."
-                    )
-                    if alert not in self.alerts:
-                        self.alerts.append(alert)
+            self.check_forced_exits()
 
     def close(self) -> None:
         if self._watchdog_stop is not None:

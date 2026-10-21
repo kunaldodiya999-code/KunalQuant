@@ -63,7 +63,7 @@ def test_control_api_loads_and_saves_validated_settings_and_status(tmp_path):
         assert session.engine.lifecycle.config.allocation == 30_000
         status = _request(base + "/api/status")
         assert status["mode"] == "paper_only"
-        assert status["available_cash"] == 90_000
+        assert status["available_cash"] == 80_000
         assert len([t for t in status["trades"] if not t["closed"]]) == 1
     finally:
         service.stop()

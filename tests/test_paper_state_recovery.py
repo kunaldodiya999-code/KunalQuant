@@ -100,3 +100,43 @@ def test_corrupt_snapshot_fails_closed(tmp_path):
     with pytest.raises(PaperStateRecoveryError):
         restarted.restore_state()
     assert restarted.all_trades() == ()
+
+
+
+def test_journal_snapshot_conflict_fails_closed(tmp_path):
+    engine = _engine(tmp_path)
+    engine.open_position(
+        strategy_id=PaperStrategyId.STRATEGY_A,
+        direction=OptionTradeDirection.LONG,
+        symbol="NSE:NIFTYCE",
+        entry_price=100,
+        timestamp=100,
+    )
+    engine.force_exit_position(
+        strategy_id=PaperStrategyId.STRATEGY_A,
+        timestamp=200,
+        fresh_option_price=110,
+    )
+    journal = tmp_path / "trade_events.csv"
+    text = journal.read_text(encoding="utf-8")
+    journal.write_text(text.replace(",110.0,", ",111.0,"), encoding="utf-8")
+
+    restarted = _engine(tmp_path)
+    with pytest.raises(PaperStateRecoveryError, match="journal"):
+        restarted.restore_state()
+
+
+def test_journal_without_snapshot_fails_closed(tmp_path):
+    engine = _engine(tmp_path)
+    engine.open_position(
+        strategy_id=PaperStrategyId.STRATEGY_A,
+        direction=OptionTradeDirection.LONG,
+        symbol="NSE:NIFTYCE",
+        entry_price=100,
+        timestamp=100,
+    )
+    (tmp_path / "paper_state.json").unlink()
+
+    restarted = _engine(tmp_path)
+    with pytest.raises(PaperStateRecoveryError, match="snapshot is missing"):
+        restarted.restore_state()

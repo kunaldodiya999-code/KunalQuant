@@ -4,9 +4,8 @@ Run during market hours after refreshing the local FYERS access token:
     python scripts/fyers_market_data_smoke_test.py --seconds 60
 
 This script only creates a market-data socket and subscribes symbols. It does
-not call order, funds, positions, or trade APIs. It intentionally prints a
-small sample of payload keys and normalized quote freshness diagnostics, never
-the access token.
+not call order, funds, positions, or trade APIs. It prints compact payload
+samples and quote freshness diagnostics, never the access token.
 """
 from __future__ import annotations
 
@@ -18,9 +17,6 @@ import threading
 import time
 from typing import Any
 
-# When launched as "python scripts/<name>.py", Python puts the scripts folder
-# (not the repository root) at sys.path[0]. Add the project root so imports
-# match the project's documented root-level invocation.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -61,21 +57,34 @@ def main() -> int:
     cache = FyersQuoteCache()
     stop_event = threading.Event()
     lock = threading.Lock()
-    counts: dict[str, int] = {}
+    quote_counts: dict[str, int] = {}
+    status_counts: dict[str, int] = {}
     payload_shapes: dict[str, tuple[str, ...]] = {}
     errors: list[str] = []
     socket_holder: dict[str, Any] = {}
     connected = threading.Event()
 
     def on_message(message: Any) -> None:
+        # FYERS sends control/status frames (cn, ful, sub, etc.) through the
+        # same callback as quote ticks. They are not malformed market quotes
+        # and should not be submitted to the quote cache.
+        if isinstance(message, dict) and message.get("type") != "sf":
+            kind = str(message.get("type", "<missing-type>"))
+            with lock:
+                status_counts[kind] = status_counts.get(kind, 0) + 1
+                count = status_counts[kind]
+            if count <= 3:
+                print(f"STATUS type={kind!r} payload={_safe_value(message)}")
+            return
+
         symbol = message.get("symbol") if isinstance(message, dict) else None
         label = symbol if isinstance(symbol, str) else "<non-dict-or-no-symbol>"
         accepted = cache.update(message)
         with lock:
-            counts[label] = counts.get(label, 0) + 1
+            quote_counts[label] = quote_counts.get(label, 0) + 1
             if isinstance(message, dict):
                 payload_shapes[label] = tuple(sorted(str(k) for k in message.keys()))
-            count = counts[label]
+            count = quote_counts[label]
         if count <= 3:
             print(
                 f"TICK sample={count} symbol={label!r} "
@@ -109,7 +118,6 @@ def main() -> int:
     print(f"symbols={symbols}")
     print(f"duration_seconds={args.seconds}")
     print("order_api_calls=NONE")
-    print("Starting socket; press Ctrl+C to stop early.")
 
     socket = client.create_data_socket(
         on_message=on_message,
@@ -144,10 +152,12 @@ def main() -> int:
     print("\nSUMMARY")
     print(f"connected_callback_received={connected.is_set()}")
     print(f"elapsed_seconds={time.monotonic() - started_at:.1f}")
-    print(f"messages_by_symbol={dict(counts)}")
+    print(f"market_messages_by_symbol={dict(quote_counts)}")
+    print(f"status_messages_by_type={dict(status_counts)}")
     print(f"quote_cache_symbols={cache.symbols()}")
-    print(f"quote_cache_rejected_messages={cache.rejected_messages}")
+    print(f"quote_cache_rejected_market_messages={cache.rejected_messages}")
     print(f"socket_errors={len(errors)}")
+    fresh_quotes = 0
     for symbol in cache.symbols():
         snapshot = cache.snapshot(symbol)
         if snapshot is None:
@@ -161,6 +171,7 @@ def main() -> int:
             )
             freshness = "FRESH_WITHIN_10S"
             price = quote["lp"]
+            fresh_quotes += 1
         except (LookupError, ValueError, KeyError, TypeError) as exc:
             freshness = f"NOT_FRESH: {exc}"
             price = snapshot.last_price
@@ -169,13 +180,17 @@ def main() -> int:
             f"exchange_timestamp={snapshot.exchange_timestamp} "
             f"received_at={snapshot.received_at:.3f} freshness={freshness}"
         )
-    if not connected.is_set() or not counts:
+
+    if not connected.is_set() or not quote_counts:
         print("RESULT=INCOMPLETE — inspect token, market hours, symbol names, and SDK logs.")
         return 1
     if cache.rejected_messages:
-        print("RESULT=CONNECTED_WITH_REJECTED_QUOTES — inspect actual callback fields/timestamps.")
+        print("RESULT=DATA_RECEIVED_WITH_INVALID_MARKET_TICKS — inspect quote payloads/timestamps.")
         return 2
-    print("RESULT=DATA_RECEIVED — review callback fields and quote freshness before any paper session.")
+    if fresh_quotes != len(cache.symbols()):
+        print("RESULT=CONNECTED_BUT_QUOTES_NOT_FRESH — do not use this feed for paper entries until investigated.")
+        return 3
+    print("RESULT=DATA_RECEIVED_AND_FRESH — still review timestamps before any paper session.")
     return 0
 
 

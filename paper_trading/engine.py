@@ -8,6 +8,7 @@ contract-resolution adapters are intentionally separate.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from enum import Enum
 from typing import Optional
 
@@ -194,6 +195,70 @@ class PaperTradingEngine:
             for exit_event in exits:
                 self.recorder.record_trade_exit(record, exit_event)
         return exits
+
+    def update_manual_stop(
+        self,
+        *,
+        strategy_id: PaperStrategyId | str | Enum,
+        stop_loss: float,
+        allow_loosen: bool = True,
+    ) -> PaperTradeRecord:
+        """Update an open paper position's premium stop, never a broker order.
+
+        For bought option premium, a lower stop loosens risk and a higher stop
+        tightens it. Loosening is allowed only when explicitly enabled.
+        """
+        strategy = self._strategy_id(strategy_id)
+        record = self.open_trade(strategy)
+        if record is None:
+            raise ValueError("No open paper position for this strategy.")
+        value = float(stop_loss)
+        if not isfinite(value) or value <= 0:
+            raise ValueError("Manual stop must be finite and positive.")
+        if value >= record.position.entry_price:
+            raise ValueError("Manual stop must remain below the option entry premium.")
+        if not allow_loosen and value < record.position.stop_loss:
+            raise ValueError("Loosening the manual stop is disabled.")
+        record.position.stop_loss = value
+        return record
+
+    def force_exit_position(
+        self,
+        *,
+        strategy_id: PaperStrategyId | str | Enum,
+        timestamp: int,
+        fresh_option_price: float,
+    ) -> OptionTradeExit:
+        """Close a paper position at an externally validated fresh option quote.
+
+        Caller must validate symbol, exchange timestamp and quote freshness first.
+        This method deliberately does not estimate a price when data is missing.
+        """
+        strategy = self._strategy_id(strategy_id)
+        record = self.open_trade(strategy)
+        if record is None:
+            raise ValueError("No open paper position for this strategy.")
+        price = float(fresh_option_price)
+        if not isfinite(price) or price <= 0:
+            raise ValueError("Forced-exit price must be finite and positive.")
+        position = record.position
+        quantity, lots = position.remaining_quantity, position.remaining_lots
+        pnl = (price - position.entry_price) * quantity
+        position.gross_pnl += pnl
+        position.remaining_quantity = 0
+        position.remaining_lots = 0
+        position.closed = True
+        from backtest.option_trade_lifecycle import OptionExitReason
+        event = OptionTradeExit(
+            timestamp=int(timestamp), reason=OptionExitReason.END_OF_DATA,
+            price=price, quantity=quantity, lots=lots, pnl=pnl,
+            remaining_quantity=0, remaining_lots=0,
+        )
+        record.exits.append(event)
+        record.last_processed_timestamp = int(timestamp)
+        if self.recorder is not None:
+            self.recorder.record_trade_exit(record, event)
+        return event
 
     def open_trade(self, strategy_id: PaperStrategyId | str | Enum) -> Optional[PaperTradeRecord]:
         """Return the selected strategy's active trade, if any."""

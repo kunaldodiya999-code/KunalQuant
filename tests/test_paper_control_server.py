@@ -1,4 +1,5 @@
 import json
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from paper_trading.buyer_lifecycle import BuyerLifecycleConfig, BuyerOptionTradeLifecycle
@@ -126,3 +127,56 @@ def test_control_server_rejects_non_loopback_binding(tmp_path):
         assert "loopback only" in str(exc)
     else:
         raise AssertionError("Non-loopback control server binding was accepted.")
+
+
+
+def test_control_api_rejects_invalid_settings_without_mutating_runtime_or_file(tmp_path):
+    session = _Session()
+    settings_path = tmp_path / "settings.json"
+    service = PaperControlService(session=session, settings_path=settings_path, port=0)
+    service.start()
+    try:
+        base = f"http://127.0.0.1:{service._server.server_address[1]}"
+        try:
+            _request(base + "/api/settings", "POST", {"allocation_pct": 25})
+        except HTTPError as exc:
+            assert exc.code == 400
+            payload = json.loads(exc.read())
+            assert "allocation_pct" in payload["error"]
+        else:
+            raise AssertionError("Invalid settings were accepted.")
+
+        persisted = PaperTradingSettings.load(settings_path)
+        assert persisted.allocation_pct == 20
+        assert session.engine.allocation_pct == 20
+        assert session.engine.lifecycle.config.allocation == 20_000
+    finally:
+        service.stop()
+
+
+def test_control_api_rejects_manual_stop_when_trailing_controls_disabled(tmp_path):
+    session = _Session()
+    settings_path = tmp_path / "settings.json"
+    PaperTradingSettings(trailing_stop_enabled=False).save(settings_path)
+    service = PaperControlService(session=session, settings_path=settings_path, port=0)
+    service.start()
+    try:
+        url = f"http://127.0.0.1:{service._server.server_address[1]}/api/manual-stop"
+        try:
+            _request(
+                url,
+                "POST",
+                {"strategy_id": "KTMI_LONG_SHORT_SPEED", "stop_loss": 75},
+            )
+        except HTTPError as exc:
+            assert exc.code == 400
+            payload = json.loads(exc.read())
+            assert "disabled" in payload["error"]
+        else:
+            raise AssertionError("Manual stop was accepted while controls were disabled.")
+
+        trade = session.engine.open_trade(PaperStrategyId.STRATEGY_A)
+        assert trade is not None
+        assert trade.position.stop_loss == 70
+    finally:
+        service.stop()

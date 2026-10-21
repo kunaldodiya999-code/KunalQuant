@@ -128,11 +128,6 @@ class FyersPaperFeedTests(unittest.TestCase):
                 underlying_symbols=[],
             )
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_option_tick_does_not_drive_ktmi_pipeline(self):
         seen = []
         feed = FyersPaperFeed(
@@ -151,3 +146,23 @@ if __name__ == "__main__":
         self.client.socket.callbacks["on_message"](tick)
         self.assertEqual(self.pipeline.messages, [])
         self.assertEqual(seen, ["NSE:NIFTY2610025000PE"])
+
+    def test_reconnect_resubscribes_underlyings_without_duplicate_status(self):
+        self.feed.start()
+        self.client.socket.callbacks["on_close"]()
+        self.assertFalse(self.feed.status().connected)
+        self.client.socket.callbacks["on_connect"]()
+        self.assertTrue(self.feed.status().connected)
+        self.assertEqual(self.client.socket.subscriptions[-1],
+                         (("NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX"), "SymbolUpdate"))
+
+    def test_invalid_tick_is_counted_as_rejected_without_crashing_feed(self):
+        self.feed.start()
+        self.client.socket.callbacks["on_message"]({"symbol": "NSE:NIFTY50-INDEX"})
+        self.assertEqual(self.feed.status().messages_received, 1)
+        self.assertEqual(self.feed.status().messages_rejected_by_quote_cache, 1)
+        self.assertEqual(self.pipeline.messages, [{"symbol": "NSE:NIFTY50-INDEX"}])
+
+
+if __name__ == "__main__":
+    unittest.main()

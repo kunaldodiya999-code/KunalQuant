@@ -181,7 +181,11 @@ class PaperTradingEngine:
             option_high=float(option_high),
             option_low=float(option_low),
             option_close=float(option_close),
-            underlying_close=float(underlying_close),
+            underlying_close=(
+                float(underlying_close)
+                if underlying_close is not None
+                else None
+            ),
             kama_value=kama_value,
         )
         record.exits.extend(exits)

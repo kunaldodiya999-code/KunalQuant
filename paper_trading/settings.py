@@ -32,6 +32,7 @@ class PaperTradingSettings:
     stale_exit_policy: str = "wait"
     available_capital_mode: str = "cash"
     daily_loss_cutoff_enabled: bool = False
+    daily_loss_limit: float | None = None
     settings_apply_to: str = "new_trades"
 
     def __post_init__(self) -> None:
@@ -62,6 +63,15 @@ class PaperTradingSettings:
                 raise ValueError(f"{field_name} must be HH:MM") from exc
         if self.entry_cutoff >= self.forced_exit_time:
             raise ValueError("entry_cutoff must be earlier than forced_exit_time")
+        if self.daily_loss_cutoff_enabled and (
+            self.daily_loss_limit is None or not isfinite(self.daily_loss_limit)
+            or self.daily_loss_limit <= 0
+        ):
+            raise ValueError("daily_loss_limit must be positive when cutoff is enabled")
+        if not self.daily_loss_cutoff_enabled and self.daily_loss_limit is not None and (
+            not isfinite(self.daily_loss_limit) or self.daily_loss_limit <= 0
+        ):
+            raise ValueError("daily_loss_limit must be positive when provided")
 
     @property
     def allocation_amount(self) -> float:

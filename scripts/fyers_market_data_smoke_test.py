@@ -12,9 +12,18 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
+import sys
 import threading
 import time
 from typing import Any
+
+# When launched as "python scripts/<name>.py", Python puts the scripts folder
+# (not the repository root) at sys.path[0]. Add the project root so imports
+# match the project's documented root-level invocation.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from api.fyers_client import FyersClient
 from market_data.fyers_quote_cache import FyersQuoteCache
@@ -76,10 +85,10 @@ def main() -> int:
             )
 
     def on_error(error: Any, *_args: Any, **_kwargs: Any) -> None:
-        text = str(error)
+        error_text = str(error)
         with lock:
-            errors.append(text)
-        print(f"SOCKET_ERROR {text[:500]}")
+            errors.append(error_text)
+        print(f"SOCKET_ERROR {error_text[:500]}")
 
     def on_close(*args_: Any, **kwargs_: Any) -> None:
         print(f"SOCKET_CLOSED args={_safe_value(args_)} kwargs={_safe_value(kwargs_)}")
@@ -132,7 +141,7 @@ def main() -> int:
                 on_error(f"Socket close failed: {exc}")
         time.sleep(0.5)
 
-    print("\nSUMMARY")
+    print("\\nSUMMARY")
     print(f"connected_callback_received={connected.is_set()}")
     print(f"elapsed_seconds={time.monotonic() - started_at:.1f}")
     print(f"messages_by_symbol={dict(counts)}")

@@ -15,7 +15,7 @@ from market_data.fyers_quote_cache import FyersQuoteCache
 from market_data.live_ticks import LiveMinuteBarBuilder
 from paper_trading.buyer_lifecycle import BuyerLifecycleConfig, BuyerOptionTradeLifecycle
 from paper_trading.coordinator import PaperExecutionCoordinator
-from paper_trading.engine import PaperEngineConfig, PaperTradingEngine
+from paper_trading.engine import PaperEngineConfig, PaperStrategyId, PaperTradingEngine
 from paper_trading.entry_adapter import PaperEntryAdapter, PaperEntryAdapterConfig
 from paper_trading.fyers_feed import FyersPaperFeed
 from paper_trading.market_data_pipeline import PaperMarketDataPipeline
@@ -145,18 +145,51 @@ def build_paper_session(
                 quantity=position.quantity,
             )
 
-        # Only completed candles from option symbols are used by the shadow lab.
+        # Only completed candles from option symbols may advance either the
+        # active paper lifecycle or the independent TSL shadow lab.
         if isinstance(message, dict):
             symbol = message.get("symbol")
             if isinstance(symbol, str) and symbol.strip() != config.underlying_symbol:
+                option_symbol = symbol.strip()
                 for candle in option_tick_builder.on_message(message):
-                    tsl_shadow.on_candle(
-                        symbol=symbol.strip(),
-                        candle=OptionCandle(
-                            timestamp=candle.timestamp, open=candle.open,
-                            high=candle.high, low=candle.low, close=candle.close,
-                        ),
+                    option_candle = OptionCandle(
+                        timestamp=candle.timestamp, open=candle.open,
+                        high=candle.high, low=candle.low, close=candle.close,
                     )
+
+                    # Shadow candidates are observational only; they never
+                    # control or close the active paper position.
+                    tsl_shadow.on_candle(
+                        symbol=option_symbol,
+                        candle=option_candle,
+                    )
+
+                    # Advance the active buyer-only lifecycle using completed
+                    # option candles. A candle whose bucket began at/before the
+                    # entry quote time contains pre-entry prices and is skipped.
+                    for strategy_id in PaperStrategyId:
+                        trade = engine.open_trade(strategy_id)
+                        if trade is None or trade.position.symbol != option_symbol:
+                            continue
+                        if candle.timestamp <= trade.entry_timestamp:
+                            continue
+                        if (
+                            trade.last_processed_timestamp is not None
+                            and candle.timestamp <= trade.last_processed_timestamp
+                        ):
+                            continue
+
+                        engine.process_option_candle(
+                            strategy_id=strategy_id,
+                            timestamp=candle.timestamp,
+                            option_high=candle.high,
+                            option_low=candle.low,
+                            option_close=candle.close,
+                            # KAMA exits are deliberately disabled in this
+                            # milestone, so no underlying close is required.
+                            underlying_close=None,
+                            kama_value=None,
+                        )
 
     feed = FyersPaperFeed(
         client=client,

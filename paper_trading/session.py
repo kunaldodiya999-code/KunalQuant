@@ -202,23 +202,43 @@ def build_paper_session(
     defaults for this session build. The locked historical V1 lifecycle is not used
     or modified by these settings.
     """
-    if config.settings_path is not None:
-        saved = PaperTradingSettings.load(config.settings_path)
-        config = replace(
-            config,
-            allocation=saved.allocation_amount,
-            starting_capital=saved.starting_capital,
-            allocation_pct=saved.allocation_pct,
-            stop_loss_pct=saved.stop_loss_pct / 100.0,
-            target_rr=saved.partial_trigger_r,
-            partial_exit_fraction=saved.partial_exit_pct / 100.0,
-            partial_exit_enabled=saved.partial_exit_enabled,
-            single_lot_partial_mode=saved.single_lot_partial_mode,
-            entry_cutoff=saved.entry_cutoff,
-            forced_exit_enabled=saved.forced_exit_enabled,
-            forced_exit_time=saved.forced_exit_time,
-            target_enabled=saved.partial_exit_enabled,
+    settings_path = (
+        Path(config.settings_path)
+        if config.settings_path is not None
+        else Path(config.output_dir) / "settings.json"
+    )
+    if settings_path.exists():
+        saved = PaperTradingSettings.load(settings_path)
+    else:
+        saved = PaperTradingSettings(
+            starting_capital=config.starting_capital,
+            allocation_pct=config.allocation_pct,
+            stop_loss_pct=config.stop_loss_pct * 100.0,
+            partial_exit_enabled=config.partial_exit_enabled,
+            partial_trigger_r=config.target_rr,
+            partial_exit_pct=config.partial_exit_fraction * 100.0,
+            single_lot_partial_mode=config.single_lot_partial_mode,
+            forced_exit_enabled=config.forced_exit_enabled,
+            entry_cutoff=config.entry_cutoff,
+            forced_exit_time=config.forced_exit_time,
         )
+        saved.save(settings_path)
+    config = replace(
+        config,
+        settings_path=settings_path,
+        allocation=saved.allocation_amount,
+        starting_capital=saved.starting_capital,
+        allocation_pct=saved.allocation_pct,
+        stop_loss_pct=saved.stop_loss_pct / 100.0,
+        target_rr=saved.partial_trigger_r,
+        partial_exit_fraction=saved.partial_exit_pct / 100.0,
+        partial_exit_enabled=saved.partial_exit_enabled,
+        single_lot_partial_mode=saved.single_lot_partial_mode,
+        entry_cutoff=saved.entry_cutoff,
+        forced_exit_enabled=saved.forced_exit_enabled,
+        forced_exit_time=saved.forced_exit_time,
+        target_enabled=saved.partial_exit_enabled,
+    )
     recorder = PaperTradeRecorder(config.output_dir)
     quote_cache = FyersQuoteCache()
     if resolver is None:
@@ -352,7 +372,7 @@ def build_paper_session(
     )
     session.control_service = PaperControlService(
         session=session,
-        settings_path=config.settings_path or "data/paper_trading/settings.json",
+        settings_path=config.settings_path,
     )
     return session
 

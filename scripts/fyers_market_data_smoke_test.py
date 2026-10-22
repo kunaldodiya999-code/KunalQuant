@@ -29,6 +29,18 @@ from market_data.fyers_quote_cache import FyersQuoteCache
 DEFAULT_SYMBOLS = ("NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX")
 
 
+def _normalize_symbols(raw_symbols: list[str]) -> tuple[str, ...]:
+    """Accept repeated CLI arguments and comma-separated symbol lists."""
+    return tuple(
+        dict.fromkeys(
+            symbol.strip()
+            for raw in raw_symbols
+            for symbol in raw.split(",")
+            if symbol.strip()
+        )
+    )
+
+
 def _safe_value(value: Any, limit: int = 180) -> str:
     """Return compact diagnostic text without dumping arbitrarily large data."""
     try:
@@ -50,7 +62,7 @@ def main() -> int:
     args = parser.parse_args()
     if not 5 <= args.seconds <= 600:
         parser.error("--seconds must be between 5 and 600.")
-    symbols = tuple(dict.fromkeys(s.strip() for s in args.symbols if s.strip()))
+    symbols = _normalize_symbols(args.symbols)
     if not symbols:
         parser.error("Provide at least one non-empty symbol.")
 

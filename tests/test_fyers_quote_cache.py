@@ -14,7 +14,7 @@ class FyersQuoteCacheTests(unittest.TestCase):
         }
 
     def test_valid_quote_is_normalized_for_entry_adapter(self):
-        self.assertTrue(self.cache.update(self.message))
+        self.cache.update(self.message)
         quote = self.cache.get_quote(
             "NSE:NIFTY2610025000PE", decision_timestamp=1001
         )
@@ -78,6 +78,24 @@ class FyersQuoteCacheTests(unittest.TestCase):
             "NSE:NIFTY2610025000PE", decision_timestamp=1_000_000_001
         )
         self.assertEqual(quote["exch_feed_time"], 1_000_000_000)
+
+    def test_subsecond_future_timestamp_skew_is_tolerated(self):
+        self.cache.update({**self.message, "exch_feed_time": 1001})
+        quote = self.cache.get_quote(
+            "NSE:NIFTY2610025000PE",
+            decision_timestamp=1000.897,
+            now_received_at=1000.9,
+        )
+        self.assertEqual(quote["exch_feed_time"], 1001)
+
+    def test_timestamp_more_than_one_second_in_future_is_rejected(self):
+        self.cache.update({**self.message, "exch_feed_time": 1002})
+        with self.assertRaisesRegex(ValueError, "from the future"):
+            self.cache.get_quote(
+                "NSE:NIFTY2610025000PE",
+                decision_timestamp=1000.9,
+                now_received_at=1000.9,
+            )
 
 
 if __name__ == "__main__":

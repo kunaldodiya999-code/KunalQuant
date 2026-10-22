@@ -15,6 +15,12 @@ import time
 from typing import Any, Callable, Mapping
 
 
+# FYERS exchange timestamps arrive as whole seconds. Permit at most one second
+# of apparent future skew to account for second-boundary rounding/precision;
+# the independent local receipt-age check still rejects delayed packets.
+MAX_FUTURE_TIMESTAMP_SKEW_SECONDS = 1.0
+
+
 def _epoch_seconds(value: Any) -> int | None:
     """Normalize a valid seconds/milliseconds epoch value to integer seconds."""
     try:
@@ -120,7 +126,7 @@ class FyersQuoteCache:
         self,
         symbol: str,
         *,
-        decision_timestamp: int,
+        decision_timestamp: float,
         max_exchange_age_seconds: int = 5,
         max_receive_age_seconds: float = 5.0,
         now_received_at: float | None = None,
@@ -132,13 +138,16 @@ class FyersQuoteCache:
             snapshot = self._quotes.get(symbol)
         if snapshot is None:
             raise LookupError(f"No FYERS quote cached for {symbol}.")
-        exchange_age = int(decision_timestamp) - snapshot.exchange_timestamp
-        if exchange_age < 0:
+        exchange_age = float(decision_timestamp) - snapshot.exchange_timestamp
+        if exchange_age < -MAX_FUTURE_TIMESTAMP_SKEW_SECONDS:
             raise ValueError(f"FYERS quote for {symbol} is from the future.")
+        # A bounded negative age is treated as zero only for whole-second
+        # exchange timestamp precision; do not grant extra staleness allowance.
+        exchange_age = max(0.0, exchange_age)
         if exchange_age > max_exchange_age_seconds:
             raise LookupError(
                 f"FYERS quote for {symbol} is stale by exchange time "
-                f"({exchange_age}s; maximum {max_exchange_age_seconds}s)."
+                f"({exchange_age:.3f}s; maximum {max_exchange_age_seconds}s)."
             )
         received_now = float(self._receive_clock() if now_received_at is None else now_received_at)
         receive_age = received_now - snapshot.received_at

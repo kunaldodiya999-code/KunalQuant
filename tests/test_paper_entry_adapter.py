@@ -21,7 +21,7 @@ class FakeResolver:
     symbol: str = "NSE:NIFTY2610025000CE"
     calls: list | None = None
 
-    def resolve(self, *, underlying_price, entry_date, direction):
+    def resolve(self, *, underlying_price, entry_date, direction, underlying_key="NIFTY50"):
         if self.calls is not None:
             self.calls.append((underlying_price, entry_date, direction))
         if underlying_price <= 0:

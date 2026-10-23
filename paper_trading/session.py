@@ -26,6 +26,11 @@ from paper_trading.fyers_feed import FyersPaperFeed
 from paper_trading.market_data_pipeline import PaperMarketDataPipeline
 from paper_trading.pending_entry_orchestrator import PendingEntryConfig, PendingEntryOrchestrator
 from paper_trading.recorder import PaperTradeRecorder
+from paper_trading.dual_recorder import DualPaperTradeRecorder
+from paper_trading.sqlite_recorder import SQLitePaperTradeRecorder
+from database.schema import initialize_database
+from config.settings import DATABASE_PATH
+from paper_trading.instrument_universe import get_underlying
 from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
 from paper_trading.settings import PaperTradingSettings
 from paper_trading.control_server import PaperControlService
@@ -77,6 +82,7 @@ class PaperSessionConfig:
     allocation_pct: int = 20
     resolution_minutes: int = 3
     underlying_symbol: str = "NSE:NIFTY50-INDEX"
+    underlying_key: str = "NIFTY50"
     database_path: str | Path | None = None
     output_dir: str | Path = "data/paper_trading"
     pending_journal_path: str | Path = "data/paper_trading/pending_entries.csv"
@@ -95,6 +101,7 @@ class PaperSessionConfig:
     target_enabled: bool = True
 
     def __post_init__(self) -> None:
+        get_underlying(self.underlying_key)
         if self.lot_size < 1:
             raise ValueError("Supply the verified current contract lot size.")
         if self.allocation <= 0:
@@ -116,7 +123,7 @@ class PaperSession:
     engine: PaperTradingEngine
     coordinator: PaperExecutionCoordinator
     orchestrator: PendingEntryOrchestrator
-    recorder: PaperTradeRecorder
+    recorder: DualPaperTradeRecorder
     tsl_shadow: TslShadowLab
     alerts: list[str]
     control_service: PaperControlService | None = None
@@ -248,12 +255,26 @@ def build_paper_session(
         forced_exit_time=saved.forced_exit_time,
         target_enabled=saved.partial_exit_enabled,
     )
-    recorder = PaperTradeRecorder(config.output_dir)
+    csv_recorder = PaperTradeRecorder(config.output_dir)
+    database_path = Path(config.database_path) if config.database_path is not None else DATABASE_PATH
+    initialize_database(database_path)
+    sqlite_recorder = SQLitePaperTradeRecorder(
+        database_path,
+        starting_capital=config.starting_capital,
+        metadata={
+            "underlying_key": config.underlying_key,
+            "underlying_symbol": config.underlying_symbol,
+            "resolution_minutes": config.resolution_minutes,
+            "mode": "paper",
+        },
+    )
+    recorder = DualPaperTradeRecorder(csv_recorder, sqlite_recorder)
     quote_cache = FyersQuoteCache()
     if resolver is None:
         resolver = OptionContractResolver(
-            database_path=config.database_path
-        ) if config.database_path is not None else OptionContractResolver()
+            database_path=database_path,
+            underlying_key=config.underlying_key,
+        )
 
     pipeline = PaperMarketDataPipeline(
         resolution_minutes=config.resolution_minutes,
@@ -285,7 +306,8 @@ def build_paper_session(
     adapter = PaperEntryAdapter(
         resolver=resolver,
         config=PaperEntryAdapterConfig(
-            max_quote_age_seconds=config.max_quote_age_seconds
+            max_quote_age_seconds=config.max_quote_age_seconds,
+            underlying_key=config.underlying_key,
         ),
     )
     coordinator = PaperExecutionCoordinator(

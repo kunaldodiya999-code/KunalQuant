@@ -12,7 +12,7 @@ from datetime import date
 from pathlib import Path
 
 from config.settings import DATABASE_PATH
-from paper_trading.instrument_universe import get_underlying, ExpirySeries
+from instrument_universe import get_underlying, ExpirySeries
 
 
 @dataclass(frozen=True)

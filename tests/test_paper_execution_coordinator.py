@@ -17,7 +17,7 @@ TS = int(datetime(2026, 10, 13, 10, 0, tzinfo=TZ).timestamp())
 
 
 class Resolver:
-    def resolve(self, *, underlying_price, entry_date, direction):
+    def resolve(self, *, underlying_price, entry_date, direction, underlying_key="NIFTY50"):
         typ = "CE" if direction == "LONG" else "PE"
         return ResolvedOptionContract(
             instrument_id=1, symbol=f"NSE:NIFTY2610025000{typ}",

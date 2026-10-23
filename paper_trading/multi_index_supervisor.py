@@ -68,11 +68,16 @@ class MultiIndexPaperSupervisor:
                 pending_journal_path=output_dir / "pending_entries.csv",
                 resolution_minutes=resolution_minutes,
             )
-            sessions[key] = build_paper_session(
+            session = build_paper_session(
                 client=client,
                 config=config,
                 socket_factory=socket_factory,
             )
+            # Each session has its own loopback control server; sharing the
+            # default port would make the second session fail during startup.
+            if session.control_service is not None:
+                session.control_service.port = 8765 + len(sessions)
+            sessions[key] = session
         # This supervisor supports a partial set while instruments are being
         # verified, but never silently substitutes one index for another.
         if not sessions:

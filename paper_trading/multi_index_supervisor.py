@@ -50,14 +50,21 @@ class MultiIndexPaperSupervisor:
         resolution_minutes: int = 3,
         socket_factory=None,
     ) -> "MultiIndexPaperSupervisor":
+        # Validate the full requested set before constructing any sessions.
+        # Building a session creates journals/settings and initializes SQLite;
+        # a duplicate configuration must fail before those side effects occur.
+        normalized_specs: list[tuple[str, IndexSessionSpec]] = []
         seen: set[str] = set()
-        sessions: dict[str, PaperSession] = {}
-        base = Path(base_output_dir)
         for spec in specs:
             key = get_underlying(spec.underlying_key).key
             if key in seen:
                 raise ValueError(f"Duplicate paper session configured for {key}.")
             seen.add(key)
+            normalized_specs.append((key, spec))
+
+        sessions: dict[str, PaperSession] = {}
+        base = Path(base_output_dir)
+        for key, spec in normalized_specs:
             output_dir = base / key.lower()
             config = PaperSessionConfig(
                 lot_size=spec.lot_size,

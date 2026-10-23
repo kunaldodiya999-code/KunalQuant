@@ -1,6 +1,5 @@
 import pytest
 
-from paper_trading.instrument_universe import list_enabled_underlyings
 from paper_trading.multi_index_supervisor import (
     IndexSessionSpec,
     MultiIndexPaperSupervisor,
@@ -10,9 +9,9 @@ from paper_trading.multi_index_supervisor import (
 @pytest.mark.parametrize(
     "key,symbol,lot_size",
     [
-        ("NIFTY50", "NSE:NIFTY50-INDEX", 65),
-        ("SENSEX", "BSE:SENSEX-INDEX", 20),
-        ("BANKNIFTY", "NSE:NIFTYBANK-INDEX", 30),
+        ("NIFTY50", "TEST:NIFTY50", 1),
+        ("SENSEX", "TEST:SENSEX", 1),
+        ("BANKNIFTY", "TEST:BANKNIFTY", 1),
     ],
 )
 def test_index_session_spec_requires_known_index_and_explicit_metadata(key, symbol, lot_size):
@@ -39,7 +38,7 @@ def test_supervisor_rejects_duplicate_index_sessions():
         MultiIndexPaperSupervisor.build(
             client=DummyClient(),
             specs=(
-                IndexSessionSpec("NIFTY50", "NSE:NIFTY50-INDEX", 65),
+                IndexSessionSpec("NIFTY50", "TEST:NIFTY50", 1),
                 IndexSessionSpec("NIFTY50", "NSE:NIFTY50-INDEX", 65),
             ),
         )

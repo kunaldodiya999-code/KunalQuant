@@ -50,7 +50,6 @@ class MultiIndexPaperSupervisor:
         resolution_minutes: int = 3,
         socket_factory=None,
     ) -> "MultiIndexPaperSupervisor":
-        expected = {item.key for item in list_enabled_underlyings()}
         seen: set[str] = set()
         sessions: dict[str, PaperSession] = {}
         base = Path(base_output_dir)
@@ -84,8 +83,8 @@ class MultiIndexPaperSupervisor:
         """Start configured paper feeds; close already-started feeds on failure."""
         try:
             for key, session in self.sessions.items():
-                session.start()
                 self._started.append(key)
+                session.start()
         except Exception:
             self.close()
             raise

@@ -891,6 +891,91 @@ ON expired_contract_registry(
 -- SCHEMA VERSION
 -- ==========================================================
 
+
+-- PAPER TRADING (schema v5)
+-- Durable journal; separate from historical backtest trades.
+-- ==========================================================
+
+CREATE TABLE IF NOT EXISTS paper_sessions (
+    session_id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL DEFAULT 'paper',
+    status TEXT NOT NULL DEFAULT 'RUNNING',
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ended_at TEXT,
+    starting_capital REAL,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS paper_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    signal_key TEXT NOT NULL,
+    signal_timestamp INTEGER NOT NULL,
+    strategy_id TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    bar_index INTEGER NOT NULL,
+    symbol TEXT,
+    reason TEXT,
+    status TEXT NOT NULL DEFAULT 'RECEIVED',
+    rejection_reason TEXT,
+    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(session_id, signal_key),
+    FOREIGN KEY(session_id) REFERENCES paper_sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_signals_timestamp
+ON paper_signals(signal_timestamp);
+
+CREATE TABLE IF NOT EXISTS paper_trades (
+    trade_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    signal_key TEXT,
+    strategy_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry_timestamp INTEGER NOT NULL,
+    entry_price REAL NOT NULL,
+    quantity INTEGER NOT NULL,
+    lots INTEGER NOT NULL,
+    stop_loss REAL NOT NULL,
+    target REAL NOT NULL,
+    remaining_quantity INTEGER NOT NULL,
+    remaining_lots INTEGER NOT NULL,
+    gross_pnl REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'OPEN',
+    last_processed_timestamp INTEGER,
+    closed_at INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(session_id) REFERENCES paper_sessions(session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_trades_session_status
+ON paper_trades(session_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_paper_trades_entry_timestamp
+ON paper_trades(entry_timestamp);
+
+CREATE TABLE IF NOT EXISTS paper_trade_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id TEXT NOT NULL,
+    event_key TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    event_timestamp INTEGER NOT NULL,
+    price REAL,
+    quantity INTEGER,
+    lots INTEGER,
+    pnl REAL NOT NULL DEFAULT 0,
+    reason TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(trade_id, event_key),
+    FOREIGN KEY(trade_id) REFERENCES paper_trades(trade_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_trade_events_trade_timestamp
+ON paper_trade_events(trade_id, event_timestamp);
+
 """
 
 
@@ -1240,89 +1325,7 @@ def get_schema_summary(
             
 
 -- ==========================================================
--- PAPER TRADING (schema v5)
--- Durable journal; separate from historical backtest trades.
--- ==========================================================
 
-CREATE TABLE IF NOT EXISTS paper_sessions (
-    session_id TEXT PRIMARY KEY,
-    mode TEXT NOT NULL DEFAULT 'paper',
-    status TEXT NOT NULL DEFAULT 'RUNNING',
-    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    ended_at TEXT,
-    starting_capital REAL,
-    metadata_json TEXT NOT NULL DEFAULT '{}'
-);
-
-CREATE TABLE IF NOT EXISTS paper_signals (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    signal_key TEXT NOT NULL,
-    signal_timestamp INTEGER NOT NULL,
-    strategy_id TEXT NOT NULL,
-    direction TEXT NOT NULL,
-    bar_index INTEGER NOT NULL,
-    symbol TEXT,
-    reason TEXT,
-    status TEXT NOT NULL DEFAULT 'RECEIVED',
-    rejection_reason TEXT,
-    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(session_id, signal_key),
-    FOREIGN KEY(session_id) REFERENCES paper_sessions(session_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_paper_signals_timestamp
-ON paper_signals(signal_timestamp);
-
-CREATE TABLE IF NOT EXISTS paper_trades (
-    trade_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    signal_key TEXT,
-    strategy_id TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    direction TEXT NOT NULL,
-    entry_timestamp INTEGER NOT NULL,
-    entry_price REAL NOT NULL,
-    quantity INTEGER NOT NULL,
-    lots INTEGER NOT NULL,
-    stop_loss REAL NOT NULL,
-    target REAL NOT NULL,
-    remaining_quantity INTEGER NOT NULL,
-    remaining_lots INTEGER NOT NULL,
-    gross_pnl REAL NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'OPEN',
-    last_processed_timestamp INTEGER,
-    closed_at INTEGER,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(session_id) REFERENCES paper_sessions(session_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_paper_trades_session_status
-ON paper_trades(session_id, status);
-
-CREATE INDEX IF NOT EXISTS idx_paper_trades_entry_timestamp
-ON paper_trades(entry_timestamp);
-
-CREATE TABLE IF NOT EXISTS paper_trade_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    trade_id TEXT NOT NULL,
-    event_key TEXT NOT NULL,
-    event_type TEXT NOT NULL,
-    event_timestamp INTEGER NOT NULL,
-    price REAL,
-    quantity INTEGER,
-    lots INTEGER,
-    pnl REAL NOT NULL DEFAULT 0,
-    reason TEXT,
-    payload_json TEXT NOT NULL DEFAULT '{}',
-    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(trade_id, event_key),
-    FOREIGN KEY(trade_id) REFERENCES paper_trades(trade_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_paper_trade_events_trade_timestamp
-ON paper_trade_events(trade_id, event_timestamp);
 """
         ).fetchone()[0]
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Any, Callable
 import threading
+import hashlib
 
 from api.fyers_client import FyersClient
 from market_data.fyers_quote_cache import FyersQuoteCache
@@ -258,8 +259,10 @@ def build_paper_session(
     csv_recorder = PaperTradeRecorder(config.output_dir)
     database_path = Path(config.database_path) if config.database_path is not None else DATABASE_PATH
     initialize_database(database_path)
+    session_identity = hashlib.sha256(str(Path(config.output_dir).resolve()).encode("utf-8")).hexdigest()[:24]
     sqlite_recorder = SQLitePaperTradeRecorder(
         database_path,
+        session_id=f"paper-{session_identity}",
         starting_capital=config.starting_capital,
         metadata={
             "underlying_key": config.underlying_key,

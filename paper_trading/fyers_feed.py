@@ -54,7 +54,10 @@ class FyersPaperFeed:
         self.underlying_symbols = symbols
         self.on_signals = on_signals
         self.on_tick = on_tick
-        self.socket_factory = socket_factory or client.create_data_socket
+        # Resolve the production factory lazily. Validation-only callers and
+        # duplicate-session checks can construct the object without needing a
+        # fully populated client; start() will report a useful error if absent.
+        self.socket_factory = socket_factory or getattr(client, "create_data_socket", None)
         self._lock = threading.RLock()
         self._socket: Any | None = None
         self._connected = False
@@ -67,6 +70,11 @@ class FyersPaperFeed:
         with self._lock:
             if self._socket is not None:
                 raise RuntimeError("FYERS paper feed has already been started.")
+            if not callable(self.socket_factory):
+                raise RuntimeError(
+                    "FYERS client does not provide create_data_socket; "
+                    "supply a valid socket_factory."
+                )
             self._socket = self.socket_factory(
                 on_message=self.on_message,
                 on_error=self.on_error,

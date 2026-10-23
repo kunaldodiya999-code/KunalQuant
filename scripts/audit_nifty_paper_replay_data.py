@@ -37,7 +37,7 @@ def main() -> int:
         print("RESULT=DATABASE_MISSING")
         return 2
 
-    with sqlite3.connect(f"file:{args.database.resolve().as_posix()}?mode=ro", uri=True) as con:
+    with sqlite3.connect(args.database.resolve().as_uri() + "?mode=ro", uri=True) as con:
         con.row_factory = sqlite3.Row
         tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not {"instruments", "candles"}.issubset(tables):

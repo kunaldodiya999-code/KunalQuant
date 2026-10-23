@@ -30,6 +30,7 @@ class PaperEntryAdapterConfig:
     """Quote validation settings; freshness is configurable and paper-only."""
 
     max_quote_age_seconds: int = 5
+    underlying_key: str = "NIFTY50"
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,7 @@ class PaperEntryAdapter:
             underlying_price=float(underlying_price),
             entry_date=local_entry_date,
             direction=signal.direction,
+            underlying_key=self.config.underlying_key,
         )
         if quote_symbol != contract.symbol:
             raise ValueError(

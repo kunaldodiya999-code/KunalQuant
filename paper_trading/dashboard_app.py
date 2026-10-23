@@ -49,7 +49,7 @@ const date=v=>{if(v==null)return "—";let n=Number(v);let d=new Date(n<1e12?n*1
 const table=(heads,rows)=>rows.length?"<table><thead><tr>"+heads.map(x=>"<th>"+esc(x)+"</th>").join("")+"</tr></thead><tbody>"+rows.map(r=>"<tr>"+r.map(x=>"<td>"+x+"</td>").join("")+"</tr>").join("")+"</tbody></table>":"<p class='muted'>No records yet.</p>";
 async function load(){try{let response=await fetch("/api/summary",{cache:"no-store"});let d=await response.json();if(!response.ok)throw Error(d.error||"Database read failed");
 document.getElementById("db").textContent=d.database;
-document.getElementById("health").textContent=d.database_exists?"SQLite readable · refreshed "+new Date().toLocaleTimeString():"Database not found. Start a paper session or set KUNAL_QUANT_DB.";
+document.getElementById("health").textContent=d.error|| (d.database_exists?"SQLite readable · refreshed "+new Date().toLocaleTimeString():"Database not found. Start a paper session or set KUNAL_QUANT_DB.");
 let m=[["Sessions",d.metrics.sessions],["Signals recorded",d.metrics.signals],["Trades recorded",d.metrics.trades],["Realized gross P&L",money(d.metrics.realized_gross_pnl)]];
 document.getElementById("metrics").innerHTML=m.map(x=>"<div class='metric'><small>"+esc(x[0])+"</small><strong>"+esc(x[1])+"</strong></div>").join("");
 document.getElementById("sessions").innerHTML=table(["Session","Status","Started","Capital","Underlying"],d.sessions.map(s=>[esc(s.session_id),esc(s.status),esc(s.started_at),money(s.starting_capital),esc(s.underlying)]));

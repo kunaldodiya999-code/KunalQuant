@@ -66,17 +66,17 @@ class OptionContractResolver:
             raise ValueError("Strike step must be positive.")
         return int(round(underlying_price / step) * step)
 
-    def _expiry_query(self, *, entry_date: date, option_type: str) -> date:
-        spec = get_underlying(self.underlying_key)
+    def _expiry_query(self, *, entry_date: date, option_type: str, underlying_key: str) -> date:
+        spec = get_underlying(underlying_key)
         aliases = self._db_underlying(spec)
         placeholders = ",".join("?" for _ in aliases)
         with self._connect() as connection:
             rows = connection.execute(
                 f"""SELECT DISTINCT expiry_date FROM instruments
-                    WHERE broker = 'FYERS' AND underlying IN ({placeholders})
+                    WHERE broker = 'FYERS' AND exchange = ? AND underlying IN ({placeholders})
                       AND option_type = ? AND expiry_date >= ? AND is_active = 1
                     ORDER BY expiry_date""",
-                (*aliases, option_type, entry_date.isoformat()),
+                (spec.exchange, *aliases, option_type, entry_date.isoformat()),
             ).fetchall()
         expiries = [date.fromisoformat(row["expiry_date"]) for row in rows if row["expiry_date"]]
         if spec.expiry_series is ExpirySeries.MONTHLY_ONLY:
@@ -98,12 +98,13 @@ class OptionContractResolver:
     def find_nearest_expiry(
         self, entry_date: date, option_type: str, *, underlying_key: str | None = None
     ) -> date:
-        if underlying_key is not None:
-            self.underlying_key = get_underlying(underlying_key).key
+        key = get_underlying(underlying_key or self.underlying_key).key
         option_type = option_type.upper()
         if option_type not in ("CE", "PE"):
             raise ValueError("option_type must be CE or PE.")
-        return self._expiry_query(entry_date=entry_date, option_type=option_type)
+        return self._expiry_query(
+            entry_date=entry_date, option_type=option_type, underlying_key=key
+        )
 
     def resolve(
         self,
@@ -113,9 +114,7 @@ class OptionContractResolver:
         direction: str,
         underlying_key: str | None = None,
     ) -> ResolvedOptionContract:
-        if underlying_key is not None:
-            self.underlying_key = get_underlying(underlying_key).key
-        spec = get_underlying(self.underlying_key)
+        spec = get_underlying(underlying_key or self.underlying_key)
         direction = direction.upper()
         if direction == "LONG":
             option_type = "CE"
@@ -123,7 +122,7 @@ class OptionContractResolver:
             option_type = "PE"
         else:
             raise ValueError("direction must be LONG or SHORT.")
-        expiry = self.find_nearest_expiry(entry_date, option_type)
+        expiry = self.find_nearest_expiry(entry_date, option_type, underlying_key=spec.key)
         aliases = self._db_underlying(spec)
         placeholders = ",".join("?" for _ in aliases)
         # Choose the nearest strike actually listed for this expiry/type. This
@@ -132,28 +131,15 @@ class OptionContractResolver:
             rows = connection.execute(
                 f"""SELECT id, symbol, underlying, expiry_date, strike, option_type
                     FROM instruments
-                    WHERE broker = 'FYERS' AND underlying IN ({placeholders})
+                    WHERE broker = 'FYERS' AND exchange = ? AND underlying IN ({placeholders})
                       AND expiry_date = ? AND option_type = ? AND is_active = 1
                       AND strike IS NOT NULL
                     ORDER BY ABS(strike - ?), strike, symbol""",
-                (*aliases, expiry.isoformat(), option_type, float(underlying_price)),
+                (spec.exchange, *aliases, expiry.isoformat(), option_type, float(underlying_price)),
             ).fetchall()
         if not rows:
             raise LookupError(
                 f"No listed {spec.display_name} {expiry} {option_type} contracts found."
-            )
-        row = rows[0]
-        return ResolvedOptionContract(
-            instrument_id=int(row["id"]),
-            symbol=str(row["symbol"]),
-            underlying=str(row["underlying"]),
-            expiry_date=date.fromisoformat(row["expiry_date"]),
-            strike=int(row["strike"]),
-            option_type=str(row["option_type"]),
-        )
-        if not rows:
-            raise LookupError(
-                f"Exact option contract not found: {spec.display_name} {expiry} {strike} {option_type}"
             )
         row = rows[0]
         return ResolvedOptionContract(

@@ -131,12 +131,23 @@ class PaperEntryAdapter:
         local_entry_date = datetime.fromtimestamp(
             timestamp, tz=MARKET_TZ
         ).date()
-        contract = self.resolver.resolve(
-            underlying_price=float(underlying_price),
-            entry_date=local_entry_date,
-            direction=signal.direction,
-            underlying_key=self.config.underlying_key,
-        )
+        # Older injected resolver doubles may expose only the original three
+        # keyword arguments. Pass the configured index only when the resolver
+        # signature supports it; never mask a TypeError raised inside resolve().
+        import inspect
+
+        resolve_parameters = inspect.signature(self.resolver.resolve).parameters
+        resolve_kwargs = {
+            "underlying_price": float(underlying_price),
+            "entry_date": local_entry_date,
+            "direction": signal.direction,
+        }
+        if "underlying_key" in resolve_parameters or any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in resolve_parameters.values()
+        ):
+            resolve_kwargs["underlying_key"] = self.config.underlying_key
+        contract = self.resolver.resolve(**resolve_kwargs)
         if quote_symbol != contract.symbol:
             raise ValueError(
                 f"Option quote symbol mismatch: expected {contract.symbol}, "

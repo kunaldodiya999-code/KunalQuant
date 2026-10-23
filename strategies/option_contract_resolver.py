@@ -123,20 +123,34 @@ class OptionContractResolver:
             option_type = "PE"
         else:
             raise ValueError("direction must be LONG or SHORT.")
-        strike = self.calculate_atm_strike(underlying_price)
         expiry = self.find_nearest_expiry(entry_date, option_type)
         aliases = self._db_underlying(spec)
         placeholders = ",".join("?" for _ in aliases)
+        # Choose the nearest strike actually listed for this expiry/type. This
+        # avoids hard-coding a strike step that differs by index or changes over time.
         with self._connect() as connection:
             rows = connection.execute(
                 f"""SELECT id, symbol, underlying, expiry_date, strike, option_type
                     FROM instruments
                     WHERE broker = 'FYERS' AND underlying IN ({placeholders})
-                      AND expiry_date = ? AND strike = ? AND option_type = ?
-                      AND is_active = 1
-                    ORDER BY symbol""",
-                (*aliases, expiry.isoformat(), strike, option_type),
+                      AND expiry_date = ? AND option_type = ? AND is_active = 1
+                      AND strike IS NOT NULL
+                    ORDER BY ABS(strike - ?), strike, symbol""",
+                (*aliases, expiry.isoformat(), option_type, float(underlying_price)),
             ).fetchall()
+        if not rows:
+            raise LookupError(
+                f"No listed {spec.display_name} {expiry} {option_type} contracts found."
+            )
+        row = rows[0]
+        return ResolvedOptionContract(
+            instrument_id=int(row["id"]),
+            symbol=str(row["symbol"]),
+            underlying=str(row["underlying"]),
+            expiry_date=date.fromisoformat(row["expiry_date"]),
+            strike=int(row["strike"]),
+            option_type=str(row["option_type"]),
+        )
         if not rows:
             raise LookupError(
                 f"Exact option contract not found: {spec.display_name} {expiry} {strike} {option_type}"

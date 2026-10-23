@@ -49,10 +49,13 @@ class SQLitePaperTradeRecorder:
     def _strategy(value: Any) -> str:
         return str(getattr(value, "value", value))
 
-    @staticmethod
-    def _trade_id(trade: Any) -> str:
+    def _trade_id(self, trade: Any) -> str:
+        """Scope deterministic trade IDs to a session to prevent cross-session collisions."""
         p = trade.position
-        return f"{SQLitePaperTradeRecorder._strategy(trade.strategy_id)}:{int(trade.entry_timestamp)}:{p.symbol}"
+        return (
+            f"{self.session_id}:{self._strategy(trade.strategy_id)}:"
+            f"{int(trade.entry_timestamp)}:{p.symbol}"
+        )
 
     def record_signal(self, signal: Any, *, symbol: str) -> None:
         strategy = self._strategy(getattr(signal, "strategy_id", ""))
@@ -106,6 +109,8 @@ class SQLitePaperTradeRecorder:
         lots = int(getattr(exit_event, "lots", 0))
         event_key = f"{timestamp}:{reason}:{qty}:{float(exit_event.price):.8f}"
         with self._connect() as connection:
+            # The event insert is protected by the trade FK. A missing trade must
+            # fail rather than silently create an incomplete journal.
             connection.execute(
                 """INSERT OR IGNORE INTO paper_trade_events
                    (trade_id, event_key, event_type, event_timestamp, price,
@@ -117,7 +122,7 @@ class SQLitePaperTradeRecorder:
                      "remaining_lots": int(exit_event.remaining_lots),
                  })),
             )
-            connection.execute(
+            result = connection.execute(
                 """UPDATE paper_trades SET remaining_quantity=?, remaining_lots=?,
                    gross_pnl=?, status=?, last_processed_timestamp=?, closed_at=?,
                    updated_at=CURRENT_TIMESTAMP WHERE trade_id=? AND session_id=?""",
@@ -125,6 +130,11 @@ class SQLitePaperTradeRecorder:
                  "CLOSED" if p.closed else "OPEN", trade.last_processed_timestamp,
                  timestamp if p.closed else None, trade_id, self.session_id),
             )
+            if result.rowcount != 1:
+                raise RuntimeError(
+                    f"Paper trade update expected one row for {trade_id!r}; "
+                    f"updated {result.rowcount}"
+                )
 
     def get_open_trades(self) -> list[dict[str, Any]]:
         """Read open trades for dashboards/recovery audits; does not mutate engine state."""
